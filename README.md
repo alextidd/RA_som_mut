@@ -10,9 +10,9 @@
 
 ## Plan
 
-[] Check coverage of genes of interest in the dataset
-[] Run inferCNV at patient level on the dataset, using the average expression profile across all cells as the 'normal'.
-[] Run SComatic on the dataset and look for validation of tNanoSeq hotspots in the dataset.
+* Check coverage of genes of interest in the dataset
+* Run inferCNV at patient level on the dataset, using the average expression profile across all cells as the 'normal'.
+* Run SComatic on the dataset and look for validation of tNanoSeq hotspots in the dataset.
 
 ## Resources
 
