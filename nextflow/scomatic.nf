@@ -36,6 +36,7 @@ process irods {
 // The equivalent of an irods download, but for a local copy of mappings
 // Symlink the BAM/BAI appropriately so they're named the right thing for downstream
 process local {
+    errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
     label "normal4core"
     input:
         tuple val(sample), path(local), val(bam), val(donor)
@@ -115,6 +116,7 @@ process mergeCelltypeBams {
 // Index the donor-celltype BAMs, returning both the BAM and BAI
 process indexCelltypeBams {
     label "normal4core"
+    publishDir "${donor}-${params.modality}/celltype_bams/", mode:"copy"
     input:
         tuple val(donor), val(celltype), path(bam)
     output:
