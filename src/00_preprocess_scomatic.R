@@ -6,6 +6,7 @@ setwd('/lustre/scratch125/casm/team268im/at31/RA_som_mut')
 dat_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/'
 cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')
+dir.create('data/scomatic')
 
 # mappings CSV (sample_id,bam_file,id)
 list.files(
@@ -17,7 +18,7 @@ list.files(
         sample_id = gsub('-', '_', path_id),
         bam_file = paste0(cellranger_dir, path_id, '/possorted_genome_bam.bam'),
         id = gsub('-', '_', path_id)) %>%
-    readr::write_csv('data/mappings.csv')
+    readr::write_csv('data/scomatic/mappings.csv')
 
 # celltypes TSV (Index Cell_type) ----
 dat <-
@@ -33,4 +34,4 @@ aliases <-
         celltype_alias = cell_type %>% gsub(' |/', '_', .))
 aliases %>%
     dplyr::select(Index = cell, Cell_type = celltype_alias) %>%
-    readr::write_tsv('data/celltypes.tsv')
+    readr::write_tsv('data/scomatic/celltypes.tsv')

@@ -20,7 +20,7 @@ mamba activate jupy
     /software/team205/nextflow-23.04.1-all run $wd/nextflow/scomatic.nf \
         --projectDir $PWD \
         -params-file $config_dir/GEX.json \
-        -c $wd/config/run.config \
+        -c $wd/config/scomatic.config \
         -c $config_dir/LSF.config \
         -w $wd/work/ \
         --location local \
@@ -31,7 +31,7 @@ mamba activate jupy
         -entry genotypes \
         --projectDir $PWD \
         -params-file $config_dir/GEX.json \
-        -c ../../config/run.config \
+        -c $wd/config/scomatic.config \
         -c $config_dir/LSF.config \
         -w $wd/work/ \
         --location local \
