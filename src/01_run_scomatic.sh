@@ -17,19 +17,17 @@ mamba activate jupy
     cd out/scomatic/
 
     # run scomatic
-    /software/team205/nextflow-23.04.1-all run \
-        /lustre/scratch125/casm/team268im/at31/nextflow/scomatic.nf \
+    /software/team205/nextflow-23.04.1-all run $wd/nextflow/scomatic.nf \
         --projectDir $PWD \
         -params-file $config_dir/GEX.json \
-        -c ../../config/run.config \
+        -c $wd/config/run.config \
         -c $config_dir/LSF.config \
         -w $wd/work/ \
         --location local \
         -resume
     
     # get single cell genotypes
-    /software/team205/nextflow-23.04.1-all run \
-        /lustre/scratch125/casm/team268im/at31/nextflow/scomatic.nf \
+    /software/team205/nextflow-23.04.1-all run $wd/nextflow/scomatic.nf \
         -entry genotypes \
         --projectDir $PWD \
         -params-file $config_dir/GEX.json \
