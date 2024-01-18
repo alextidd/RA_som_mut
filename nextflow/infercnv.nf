@@ -8,12 +8,9 @@ params.output_dir = './'
 // perform infercnv on each sample
 process infercnv {
   tag "${sample_id}"
-  memory { 32.GB * task.attempt }
-  cpus { 12 * task.attempt }
-  time { 24.hour * task.attempt }
-  queue { 'week' }
+  label "week16core10gb"
 
-  publishDir "${params.output.dir}/${id}/${sample_id}",
+  publishDir "${params.output_dir}/${id}/${sample_id}",
     mode: 'copy',
     pattern: "infercnv*"
 
@@ -30,11 +27,9 @@ process infercnv {
 
     # subset matrix to cells in the sample
     annotations <- 
-	readr::read_tsv("${annotations}", col_names = c('cell', 'celltype'))
+        readr::read_tsv("${annotations}", col_names = c('cell', 'celltype'))
     raw_counts_matrix <- 
-	readRDS("${raw_counts_matrix}")
-    raw_counts_matrix <-
-	raw_counts_matrix[, annotations\$cell]    
+        readRDS("${raw_counts_matrix}")[, annotations\$cell]    
 
     # create infercnv object
     infercnv_obj <-
@@ -66,18 +61,18 @@ process infercnv {
 workflow {
 
     // check inputs
-    if (params.mappings == null) [
-	error "Please provide a mappings CSV file via --mappings"
+    if (params.mappings == null) {
+        error "Please provide a mappings CSV file via --mappings"
     }
     if (params.gene_order_file == null) {
-	error "Please provide a gene order file via --gene_order_file"
+        error "Please provide a gene order file via --gene_order_file"
     }
 
     // load the mappings
     mappings = Channel.fromPath(params.mappings, checkIfExists: true) \
-	| splitCsv(header:true, strip:true) \
-	| map { row -> 
-		tuple(row.sample_id, row.raw_counts_matrix, row.annotations, row.id) } \
-	| infercnv
+        | splitCsv(header:true, strip:true) \
+        | map { row -> 
+            tuple(row.sample_id, row.raw_counts_matrix, row.annotations, row.id) } \
+        | infercnv
 
 }
