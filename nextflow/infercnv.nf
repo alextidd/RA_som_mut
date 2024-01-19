@@ -9,6 +9,7 @@ params.output_dir = './'
 process infercnv {
   tag "${sample_id}"
   label "week16core10gb"
+  errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
 
   publishDir "${params.output_dir}/${id}/${sample_id}",
     mode: 'copy',
@@ -22,7 +23,7 @@ process infercnv {
 
   script:
     """
-    #!/usr/bin/env Rscript
+    #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
     library(magrittr)
 
     # subset matrix to cells in the sample
@@ -40,16 +41,24 @@ process infercnv {
             gene_order_file = "${params.gene_order_file}",
             ref_group_names = NULL)
     
-    # run infercnv
+    # run infercnv 
+    # (parameters taken from mp34)
+    # (/lustre/scratch126/casm/team268im/mp34/analysis/synovium_scRNA/infercnv_analysis.R)
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            cutoff = 0.1,
+            cutoff = 0.1, # 0.1 for 10x-genomics
             out_dir = './',
-            cluster_by_groups = F,
+            num_threads = 8, 
+            window_length = 151, # 51 is too small
+            cluster_by_groups = TRUE,
+            HMM = TRUE, # turn on to auto-run the HMM prediction of CNV levels
+            HMM_transition_prob = 1e-6,
+            HMM_report_by = c("subcluster"),
+            analysis_mode = c('subclusters'),
             denoise = T,
-            HMM = T,
-            num_threads = 12,
+            sd_amplifier = 0.65, # sets midpoint for logistic
+            noise_logistic = F,
             resume_mode = T)
 
     # save output infercnv object

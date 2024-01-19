@@ -35,3 +35,12 @@ aliases <-
 aliases %>%
     dplyr::select(Index = cell, Cell_type = celltype_alias) %>%
     readr::write_tsv('data/scomatic/celltypes.tsv')
+
+# celltype counts
+dat %>%
+    dplyr::select(sample_id = sample,
+                  id = sample, 
+                  celltype = cell_type) %>%
+    dplyr::group_by(sample_id, id, celltype) %>%
+    dplyr::count(name = 'n_cells_per_id_per_celltype') %>%
+    readr::write_tsv('data/scomatic/celltype_counts.tsv')
