@@ -2,13 +2,15 @@
 library(magrittr)
 
 # dirs
-setwd('/lustre/scratch125/casm/team268im/at31/RA_som_mut')
+setwd('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/')
 dat_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/'
 cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')
-dir.create('data/scomatic')
+dir.create('data/')
 
-# mappings CSV (sample_id,bam_file,id)
+# Zhang 2023 ----
+# mappings CSV (sample_id,bam_file,id) -----
+dir.create('data/Zhang2023/')
 list.files(
         cellranger_dir,
         pattern = '^BRI\\-',
@@ -18,9 +20,9 @@ list.files(
         sample_id = gsub('-', '_', path_id),
         bam_file = paste0(cellranger_dir, path_id, '/possorted_genome_bam.bam'),
         id = gsub('-', '_', path_id)) %>%
-    readr::write_csv('data/scomatic/mappings.csv')
+    readr::write_csv('data/Zhang2023/mappings.csv')
 
-# celltypes TSV (Index Cell_type) ----
+# celltypes TSV (Index Cell_type) -----
 dat <-
     readRDS(paste0(processed_dir, 'all_cells_reference.rds'))$meta_data
 aliases <-
@@ -34,7 +36,7 @@ aliases <-
         celltype_alias = cell_type %>% gsub(' |/', '_', .))
 aliases %>%
     dplyr::select(Index = cell, Cell_type = celltype_alias) %>%
-    readr::write_tsv('data/scomatic/celltypes.tsv')
+    readr::write_tsv('data/Zhang2023/celltypes.tsv')
 
 # celltype counts
 dat %>%
@@ -43,4 +45,4 @@ dat %>%
                   celltype = cell_type) %>%
     dplyr::group_by(sample_id, id, celltype) %>%
     dplyr::count(name = 'n_cells_per_id_per_celltype') %>%
-    readr::write_tsv('data/scomatic/celltype_counts.tsv')
+    readr::write_tsv('data/Zhang2023/celltype_counts.tsv')
