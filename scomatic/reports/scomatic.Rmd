@@ -1,0 +1,285 @@
+---
+title: "Mutation loads in rheumatoid arthritis data from SComatic"
+author: "Alexandra Tidd"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 8
+    keep_md: true
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 4
+    theme: lumen
+params:
+    do_rerun: TRUE
+    celltype_counts: NULL
+    mappings: NULL
+---
+
+```{css style settings, echo = FALSE}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 14px;
+    border-left: 5px solid #eee;
+}
+```
+
+```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
+# params <- list(celltype_counts = 'data/scomatic/celltype_counts.tsv', do_rerun = T)
+knitr::opts_knit$set(root.dir = '../')
+knitr::opts_chunk$set(
+  warning = FALSE, 
+  dpi = 300, 
+  message = FALSE,
+  cache.path = 'reports/mutation_load_cache/') 
+
+# libraries
+library(magrittr)
+library(ggplot2)
+library(gridExtra)
+```
+
+SComatic was run on scRNA-seq rheumatoid arthritis data using a modified version of kp9 and jc48’s [Nextflow implementation](https://github.com/Teichlab/scripts/tree/bd17ed22ec9e669056862d28c5f12a7e5033e68c/genotyping/scomatic/nextflow). 
+Their implementation was intended to capture all germline and somatic variants in order to reconstruct tissue phylogeny, using both shared and private mutations for lineage tracing. In order to achieve this, they set `max_cell_types` to 1e6. I set it to 1. I also forced the pipeline to publish the celltype-split BAMs for each patient, which will be used to assess coverage of the driver genes in each cell type. The pipeline can be used with both GEX and ATAC modalities, hence the `*-GEX` suffix on the output directories.
+
+Here is an example of the output files for donor BRI-401: 
+
+```
+out/scomatic/BRI_401-GEX
+├── BRI_401.calling.step2.intersect.tsv
+├── BRI_401.calling.step2.pass.tsv
+├── BRI_401.calling.step2.tsv
+├── BRI_401.coverage_cell_count.per_chromosome.report.tsv
+├── BRI_401.coverage_cell_count.report.tsv
+├── cell_callable_sites
+│   ├── BRI_401.B_cell_plasma_cell.SitesPerCell.tsv
+│   ├── BRI_401.Endothelial_cell.SitesPerCell.tsv
+│   ├── BRI_401.Myeloid_cell.SitesPerCell.tsv
+│   ├── BRI_401.NK.SitesPerCell.tsv
+│   ├── BRI_401.Stromal_cell.SitesPerCell.tsv
+│   └── BRI_401.T_cell.SitesPerCell.tsv
+└── celltype_bams
+    ├── BRI_401.B_cell_plasma_cell.bam
+    ├── BRI_401.B_cell_plasma_cell.bam.bai
+    ├── BRI_401.Endothelial_cell.bam
+    ├── BRI_401.Endothelial_cell.bam.bai
+    ├── BRI_401.Myeloid_cell.bam
+    ├── BRI_401.Myeloid_cell.bam.bai
+    ├── BRI_401.NK.bam
+    ├── BRI_401.NK.bam.bai
+    ├── BRI_401.Stromal_cell.bam
+    ├── BRI_401.Stromal_cell.bam.bai
+    ├── BRI_401.T_cell.bam
+    └── BRI_401.T_cell.bam.bai
+```
+
+### Sample metadata
+
+```{r md}
+ct_counts <-
+    params$celltype_counts %>%
+    readr::read_tsv()
+mappings <-
+    params$mappings %>%
+    readr::read_csv()
+```
+
+### Celltype counts
+
+```{r plot_cts_vs_ids, results = F, message = F}
+p_dat <-
+    ct_counts %>%
+    dplyr::group_by(celltype) %>%
+    dplyr::mutate(
+        n_cells_per_celltype = sum(n_cells_per_id_per_celltype)) %>%
+    dplyr::group_by(id) %>%
+    dplyr::mutate(
+        n_cells_per_id = sum(n_cells_per_id_per_celltype)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+        id = forcats::fct_reorder(id, n_cells_per_id),
+        celltype = forcats::fct_reorder(celltype, -n_cells_per_celltype),
+        dplyr::across(
+          .cols = dplyr::starts_with('n_'), 
+          .fns = ~ prettyNum(.x, big.mark = ",", scientific = FALSE),
+          .names = '{.col}_label'))
+
+p_ids_x_cts <-
+  p_dat %>%
+  ggplot(aes(x = id, y = celltype, 
+             colour = celltype)) +
+  geom_point(aes(size = n_cells_per_id_per_celltype, 
+                 alpha = n_cells_per_id_per_celltype)) +
+  scale_alpha(range = c(0.5, 1)) +
+  scale_y_discrete(position = 'right')  +
+  scale_x_discrete(position = 'bottom', guide = guide_axis(angle = -90)) +
+  scale_size_continuous(range = c(1, 8)) +
+  theme_linedraw() +
+  theme(legend.position = 'left', legend.title = element_blank(),
+        axis.text.x = ggtext::element_markdown(angle = 90, vjust = 0.5),
+        axis.title = element_blank(),
+        strip.placement = 'outside') 
+```
+
+### PASS/FAIL criteria
+
+```{r pass_crit}
+prefilter <-
+    mappings$id %>%
+    purrr::set_names() %>% 
+    purrr::map(function(id) {
+        step2 <- 
+            paste0(params$output_dir, id, '-GEX') %>%
+            list.files(pattern = '.calling.step2.tsv', full.names = T) 
+        if (length(step2)) { readr::read_tsv(step2, comment = '##') }
+    }) %>%
+    dplyr::bind_rows(.id = 'id')
+prefilter %>%
+    dplyr::mutate(FILTER = FILTER == 'PASS') %>%
+    dplyr::group_by(id) %>%
+    dplyr::mutate(
+        n_muts = dplyr::n(),
+        id = forcats::fct_reorder(id, -n_muts)) %>%
+    ggplot(aes(x = id, fill = FILTER)) +
+    geom_bar() +
+    theme(axis.text.x = element_text(angle = -90))
+```
+
+### Load called mutations
+
+```{r load_som_muts}
+scom <- xfun::cache_rds({
+  
+  # initiate lists
+  scom <- list(
+    all_muts = list(),
+    som_muts = list(),
+    coverages = list(),
+    sc_muts = list(),
+    annovar = list()
+  )
+  
+  # load somatic mutations and coverages for each ID
+  dir <- params$output_dir
+  list.files(dir, pattern = '-GEX$') %>%
+    purrr::walk(function(subdir) {
+
+      id <- gsub('-GEX', '', subdir)
+      file_prefix <- paste0(dir, '/', subdir, '/', id)
+      message(id)
+
+      # get all called muts
+      scom$all_muts[[id]] <<-
+        paste0(file_prefix, '.calling.step2.pass.tsv') %>%
+        readr::read_tsv(comment = '##') %>%
+        # separate longer the Cell_types column and pivot longer the
+        # calling columns and then separate wider the INFO 
+        # -> produces one row per variant per celltype
+        tidyr::pivot_longer(!c(`#CHROM`:INFO), names_to = 'ct', values_to = 'call') %>%
+        tidyr::separate_rows(Cell_types, VAF, sep = ',') %>%
+        tidyr::separate(
+          'call', 
+          into = paste0('ct_', c('DP', 'NC', 'CC', 'BC', 'BQ', 'BCf', 'BCr')),
+          sep = '\\|',  remove = F, convert = T) %>%
+        readr::type_convert() %>%
+        dplyr::filter(ct == Cell_types) %>%
+        # get celltype names
+        dplyr::mutate(
+          annotation_level1_alias = gsub(col_suffix, '', Cell_types)) 
+
+      # get called somatic mutations (exclusive to celltypes)
+      scom$som_muts[[id]] <<-
+        scom$all_muts[[id]] %>%
+        # get vars shared by <= max_n_celltypes
+        dplyr::group_by(`#CHROM`, Start, End, REF, ALT) %>%
+        dplyr::filter(dplyr::n_distinct(annotation_level1_alias) == 1) %>%
+        # get median VAF per celltype
+        dplyr::group_by(annotation_level1_alias) %>%
+        dplyr::mutate(median_VAF_per_id_per_celltype = median(VAF)) %>%
+        dplyr::ungroup() 
+
+      # get callable sites per celltype
+      scom$coverages[[id]] <<-
+        paste0(file_prefix, '.coverage_cell_count.per_chromosome.report.tsv') %>%
+        readr::read_tsv() %>%
+        # get celltype names
+        dplyr::mutate(
+          annotation_level1_alias = gsub(col_suffix, '', Cell_types))
+
+      # get annovar gene annotations
+      scom$annovar[[id]] <<-
+        paste0(dir, '/', subdir, '/annovar/', 
+               id, '.variants.annovar.hg38_multianno.csv') %>%
+        readr::read_csv() 
+
+      # get somatic mutations at single cell resolution
+      scom$sc_muts[[id]] <<-
+        paste0(dir, '/', subdir, '-genotypes') %>%
+        list.files(full.names = T) %>%
+        purrr::map(function(file) {
+          # message(file)
+          sc_df <-
+            readr::read_tsv(file, ) %>%
+            dplyr::filter(Cell_type_expected == Cell_type_observed,
+                          ALT_expected == Base_observed) %>%
+            # get celltype names
+            dplyr::mutate(
+              annotation_level1_alias = gsub(
+                paste0('_', id), '', Cell_type_observed))
+
+          # get callable sites per cell
+          ct <- unique(sc_df$Cell_type_observed)
+          if (length(ct) != 1) {
+            message(paste(length(ct), 'celltypes in the single cell genotypes file! Should be 1!'))
+            message(paste('File', file, 'will be skipped!'))
+            sc_df <- tibble::tibble()
+          } else {
+            sc_coverage <- 
+              paste0(dir, '/', subdir, '/cell_callable_sites/', 
+                     id, '.', ct, '.SitesPerCell.tsv') %>%
+              readr::read_csv()
+            # add single cell-level coverage
+            sc_df <- dplyr::left_join(sc_df, sc_coverage, by = 'CB')
+          }
+
+          # return
+          sc_df
+
+        }) %>%
+        dplyr::bind_rows()
+
+    })
+  
+  # add sample and celltype metadata
+  scom <-
+    scom %>% 
+    purrr::map(function(df_ls) {
+      df_ls[sapply(df_ls, function(x) dim(x)[1]) > 0] %>%
+        dplyr::bind_rows(.id = 'id')
+    }) %>%
+        # # add celltype info
+        dplyr::left_join(ct_info) %>%
+        # # add ID info
+        dplyr::left_join(sm) %>%
+        # add grouping structure
+        dplyr::group_by(# sample info
+                        id, donor_id, sex, age_bracket, age, X10X_version, n_cells_per_id,
+                        # celltype info
+                        annotation_level1_alias, annotation_level1, n_cells_per_id_per_celltype)
+    })
+  
+  # return
+  scom
+      
+}, file = 'scom.rds', rerun = params$do_rerun)
+
+# assign dfs globally
+all_muts <- xfun::cache_rds({scom$all_muts}, file = 'all_muts.rds', rerun = do_rerun)
+som_muts <- xfun::cache_rds({scom$som_muts}, file = 'som_muts.rds', rerun = do_rerun)
+coverages <- xfun::cache_rds({scom$coverages}, file = 'coverages.rds', rerun = do_rerun)
+sc_muts <- xfun::cache_rds({scom$sc_muts}, file = 'sc_muts.rds', rerun = do_rerun)
+annovar <- xfun::cache_rds({scom$annovar}, file = 'annovar.rds', rerun = do_rerun)
+```
