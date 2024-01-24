@@ -1,5 +1,5 @@
 #!/bin/bash
-# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/ ; . ~/.bashrc ; mamba activate jupy ; /software/team205/bin/jsub lsf -q week -n scomatic -c 1 -m 2g -l log "bash src/01_run_scomatic.sh" | bsub
+# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/ ; . ~/.bashrc ; mamba activate jupy ; /software/team205/bin/jsub lsf -q week -n scomatic_lo -c 1 -m 2g -l log "bash src/02_run_scomatic_low_thresholds.sh" | bsub
 
 set -eo pipefail
 
@@ -18,9 +18,9 @@ mamba activate jupy
     --projectDir $PWD \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
+    -c config/low_thresholds.config \
     -c $config_dir/LSF.config \
     -w work/ \
-    --output_dir out/Zhang2023/default_thresholds/ \
     --location local \
     -resume
 
@@ -30,8 +30,8 @@ mamba activate jupy
     --projectDir $PWD \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
+    -c config/low_thresholds.config \
     -c $config_dir/LSF.config \
     -w work/ \
-    --output_dir out/Zhang2023/default_thresholds/ \
     --location local \
     -resume

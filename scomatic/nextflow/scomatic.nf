@@ -8,8 +8,12 @@ params.celltypes = null
 params.location = "irods"
 // The genotyping pipeline will specify an scomatic mutations folder
 params.mutations = null
-// Max number of cell types sharing a mutation
+// SComatic params
 params.max_cell_types = 1
+params.min_dp = 5
+params.min_cc = 5
+// Output directory
+params.output_dir = './'
 
 // Download a given sample's BAM from iRODS
 // Then either retrieve the BAI or make one via indexing
@@ -116,7 +120,7 @@ process mergeCelltypeBams {
 // Index the donor-celltype BAMs, returning both the BAM and BAI
 process indexCelltypeBams {
     label "normal4core"
-    publishDir "${donor}-${params.modality}/celltype_bams/", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}/celltype_bams/", mode:"copy"
     input:
         tuple val(donor), val(celltype), path(bam)
     output:
@@ -150,6 +154,8 @@ process bamToTsv {
             --out_folder output \
             --min_bq 30 \
             --min_mq ${mq} \
+            --min_cc ${params.min_cc} \
+            --min_dp ${params.min_dp} \
             --tmp_dir temp \
             --bin 1000000 \
             --nprocs ${task.cpus}
@@ -196,7 +202,7 @@ process callMutations {
 // This needs a bunch of memory apparently for reasons that I can't identify from the code
 process filterMutationsGex {
     label "long10gb"
-    publishDir "${donor}-${params.modality}", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}", mode:"copy"
     input:
         tuple val(donor), path(tsv), path(pons), path(editing)
     output:
@@ -213,7 +219,7 @@ process filterMutationsGex {
 
 process filterMutationsAtac {
     label "long10gb"
-    publishDir "${donor}-${params.modality}", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}", mode:"copy"
     input:
         tuple val(donor), path(tsv), path(pons)
     output:
@@ -230,7 +236,7 @@ process filterMutationsAtac {
 // Intersect the filtered mutations with a BED region of interest
 process intersectBed {
     label "normal"
-    publishDir "${donor}-${params.modality}", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}", mode:"copy"
     input:
         tuple val(donor), path(tsv), path(bed)
     output:
@@ -245,7 +251,7 @@ process intersectBed {
 // Standard $ escaping applies
 process passMutations {
     label "normal"
-    publishDir "${donor}-${params.modality}", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}", mode:"copy"
     input:
         tuple val(donor), path(tsv)
     output:
@@ -260,7 +266,7 @@ process passMutations {
 // This makes a couple files, both end in .report.tsv
 process callableSitesCellType {
     label "long"
-    publishDir "${donor}-${params.modality}", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}", mode:"copy"
     input:
         tuple val(donor), path(tsv)
     output:
@@ -277,7 +283,7 @@ process callableSitesCellType {
 // Mirror argument values based on earlier bamToTsv step for consistency
 process callableSitesCell {
     label "week16core10gb"
-    publishDir "${donor}-${params.modality}/cell_callable_sites", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}/cell_callable_sites", mode:"copy"
     input:
         tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), val(mq), path(tsv)
     output:
@@ -303,7 +309,7 @@ process callableSitesCell {
 // (Even if they are just temporary and get removed at the end of the process)
 process bamToGenotype {
     label "long16core10gb"
-    publishDir "${donor}-${params.modality}-genotypes", mode:"copy"
+    publishDir "${params.output_dir}/${donor}-${params.modality}-genotypes", mode:"copy"
     input:
         tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), val(mq), path(allcelltypes), path(mutations)
     output:

@@ -13,7 +13,7 @@ mkdir -p work/ out/ log/
 mamba activate jupy
 
 # run infercnv
-/software/team205/nextflow-23.04.1-all run infercnv.nf \
+/software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
     -c config/Zhang2023.config \
     -c config/infercnv.config \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \

@@ -20,7 +20,7 @@ list.files(
     dplyr::transmute(
         sample_id,
         raw_counts_matrix = paste0(processed_dir, 'raw_mRNA_count_matrix.rds'),
-        annotations = paste0(wd, '/data/annotations/', sample_id, '.tsv'),
+        annotations = paste0(wd, '/data/Zhang2023/annotations/', sample_id, '.tsv'),
         id = sample_id) %>%
     readr::write_csv('data/Zhang2023/mappings.csv')
 
@@ -36,8 +36,8 @@ dat %>%
         df %>%
             dplyr::select(cell, cell_type) %>%
             readr::write_tsv(
-            paste0('data/Zhang2023/annotations/', sample, '.tsv'),
-            col_names = F
+              paste0('data/Zhang2023/annotations/', sample, '.tsv'),
+              col_names = F
             )
     })
 

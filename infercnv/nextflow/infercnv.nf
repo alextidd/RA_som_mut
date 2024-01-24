@@ -9,7 +9,6 @@ params.output_dir = './'
 process infercnv {
   tag "${sample_id}"
   label "week16core10gb"
-  errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
 
   publishDir "${params.output_dir}/${id}/${sample_id}",
     mode: 'copy',
