@@ -66,7 +66,7 @@ mkdir -p $output_dir
 (
   echo -e 'chr\tpos\tdepth\tgene\tsample' ;
   for bam in $(find $input_dir -iname 'possorted_genome_bam.bam'); do
-  	sample=$(echo $bam | cut -d "/" -f 10)
+  	sample=$(echo $bam | cut -d "/" -f 10 | sed 's/\-/_/g')
     while read -r gene coords ; do
       samtools depth -a -r $coords -Q 30 $bam |
       awk -v sample=$sample -v gene=$gene '{print $0"\t"gene"\t"sample}'
@@ -140,7 +140,7 @@ cov <- xfun::cache_rds({
     dplyr::select(-start, -end)
   cov <-
     cov %>%
-    dplyr::left_join(exons) %>%
+    dplyr::left_join(exons, by = c('chr', 'pos', 'gene')) %>%
     dplyr::mutate(exon = ifelse(is.na(exon), 'intron', exon),
                   feature = ifelse(exon == 'intron', 'intron', 'exon'))
   
@@ -163,7 +163,7 @@ exon_coords <- xfun::cache_rds({
 }, file = 'exon_coords.rds', rerun = params$rerun)
 
 # function: plot all
-plot_all <- function(p_df, p_exon_coords, info) {
+plot_all <- function(p_df, p_exon_coords, p_title) {
   ggplot() +
     geom_rect(
       data = p_exon_coords,
@@ -174,12 +174,15 @@ plot_all <- function(p_df, p_exon_coords, info) {
       data = p_df,
       aes(x = pos, y = depth, fill = feature)) +
     theme_classic() +
+    theme(panel.border = element_rect(fill = NA),
+          panel.spacing = unit(.05, 'lines')) +
     scale_fill_manual(values = c(exon = 'darkblue', intron = 'darkgrey')) +
-    labs(title = paste(info, '(all)'))
+    labs(title = paste(p_title, '(all)')) +
+    facet_grid(celltype ~ ., space = 'free_x', scales = 'free_x') 
 }
 
 # function: plot exons 
-plot_exons <- function(p_df, title) {
+plot_exons <- function(p_df, p_title) {
   p_df %>%
     # get only exonic sequence
     dplyr::filter(feature == 'exon') %>%
@@ -187,21 +190,23 @@ plot_exons <- function(p_df, title) {
     dplyr::mutate(
       exon = exon %>% forcats::fct_reorder(exon %>% gsub('exon', '', .) %>% as.numeric())
     ) %>%
-    ggplot(aes(x = pos, y = depth)) +
+    ggplot(aes(x = pos, y = depth, group = celltype)) +
     geom_col(fill = 'darkblue') +
-    facet_grid(. ~ exon, space = 'free_x', scales = 'free_x') +
     theme_classic() +
     theme(axis.text.x = element_blank(),
           axis.ticks.x = element_blank(),
-          panel.spacing = unit(.05, "lines"),
+          panel.spacing = unit(.05, 'lines'),
           panel.border = element_rect(fill = NA)) +
-    labs(title = paste(info, '(exons)'))
+    labs(title = paste(p_title, '(exons)')) +
+    facet_grid(celltype ~ exon, space = 'free_x', scales = 'free_x') 
 }
 
 # create list of plots by gene x sample
 p <- xfun::cache_rds({
+  
   # initiate plot list
   p <- list()
+  n_cts <- list()
   
   cov %>% 
     dplyr::group_by(gene, sample) %>%
@@ -218,34 +223,32 @@ p <- xfun::cache_rds({
       info <- t(i[1,]) %>% paste(collapse = '.')
       p[[info]] <<- list()
       
+      # get number of celltypes for plot dims
+      p[[info]]$n_cts <<- 
+        df_i %>% 
+        dplyr::filter(!is.na(celltype)) %>% 
+        dplyr::pull(celltype) %>% 
+        dplyr::n_distinct()
+      
+      # plot by sample and by celltype
       list(by_sample = list(lvl = 'drivers_samtools_depth', title_suffix = ''),
-           by_celltype = list(lvl = 'drivers_samtools_depth', title_suffix = '_by_celltype')) %>%
+           by_celltype = list(lvl = 'drivers_samtools_depth_by_celltype', title_suffix = '_by_celltype')) %>%
         purrr::map(function(x){
           
           # plot all
-          p_all <-
+          p[[info]][[paste0('all', x$title_suffix)]] <<-
             plot_all(
               p_df = df_i %>% dplyr::filter(lvl == x$lvl),
               p_exon_coords = exon_coords %>% dplyr::filter(gene == i$gene),
-              paste0(info, x$title_suffix)
+              p_title = paste0(info, x$title_suffix)
             )  
           
           # plot exons only
-          p_all <<-
+          p[[info]][[paste0('exons', x$title_suffix)]] <<-
             plot_exons(
               p_df = df_i %>% dplyr::filter(lvl == x$lvl),
-              paste0(info, x$title_suffix)
+              p_title = paste0(info, x$title_suffix)
             )
-          
-          # facet grid for celltypes
-          if (title_suffix == '_by_celltype') {
-            p_all <- p_all + facet_grid(~ celltype)
-            p_exons <- p_exons + facet_grid(~ celltype)
-          }
-          
-          # assign globally
-          p[[info]][[paste0('all', title_suffix)]] <<- p_all
-          p[[info]][[paste0('exons', title_suffix)]] <<- p_exons
           
         })
       
@@ -262,12 +265,15 @@ chunks <- c()
 
 for (info in names(p)) {
   chunks <- c(chunks, paste0('\n####', info))
+  message(info)
   
   knit_plot <- c(
     '',
     paste0('```{r ', info, ', class.source = "fold-hide", warning = F, message = F, ',
-           'fig.dim = c(20, ', 3 * length(p[[info]]), ')}'),
-    paste0('do.call("grid.arrange", c(p[["', info, '"]], ncol = 1))')
+           'fig.dim = c(20, ', 4 + 4 * p[[info]]$n_cts, ')}'),
+    paste0('p_i <- p[["', info, '"]]'),
+    paste0('grid.arrange(p_i$all, p_i$all_by_celltype, p_i$exons, p_i$exons_by_celltype, ncol = 1, ',
+           'heights = c(2, p_i$n_cts * 2, 2, p_i$n_cts * 2))'),
     '```',
     '')
   knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
@@ -279,4 +285,15 @@ dev_off_if()
 
 # evaluate chunks
 cat(unlist(chunks), sep = '\n')
+```
+
+```{r mean_coverage}
+cov %>%
+  dplyr::filter(lvl == 'drivers_samtools_depth') %>%
+  dplyr::group_by(sample, gene, feature) %>%
+  dplyr::summarise(mean_depth = mean(depth)) %>%
+  ggplot(aes(x = sample, y = mean_depth, fill = feature)) +
+  geom_col(position = 'dodge') +
+  facet_grid(gene ~ .) +
+  theme_classic()
 ```

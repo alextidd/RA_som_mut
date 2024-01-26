@@ -2,7 +2,9 @@
 library(magrittr)
 
 # dirs
-wd <- '/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/'
+wd <- 
+  ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') %>%
+  paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/') 
 setwd(wd)
 
 # Zhang 2023 ---
@@ -11,35 +13,50 @@ cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')
 dir.create('data/Zhang2023/annotations/', recursive = T)
 
-# mappings CSV (sample_id,raw_counts_matrix,annotations,id) ----
-list.files(
-        cellranger_dir,
-        pattern = '^BRI\\-',
-        include.dirs = T) %>%
-    tibble::enframe(value = 'sample_id') %>%
-    dplyr::transmute(
-        sample_id,
-        raw_counts_matrix = paste0(processed_dir, 'raw_mRNA_count_matrix.rds'),
-        annotations = paste0(wd, '/data/Zhang2023/annotations/', sample_id, '.tsv'),
-        id = sample_id) %>%
-    readr::write_csv('data/Zhang2023/mappings.csv')
-
 # annotations TSVs (cell celltype) ----
-dat <-
-    readRDS(paste0(processed_dir, 'all_cells_reference.rds'))$meta_data
-dat %>%
-    dplyr::select(cell, cell_type, sample) %>%
-    dplyr::group_by(sample) %>%
-    dplyr::group_split() %>%
-    purrr::walk(function(df) {
-        sample <- unique(df$sample)
-        df %>%
-            dplyr::select(cell, cell_type) %>%
-            readr::write_tsv(
-              paste0('data/Zhang2023/annotations/', sample, '.tsv'),
-              col_names = F
-            )
-    })
+annotations <-
+  readRDS(paste0(processed_dir, 'all_cells_reference.rds'))$meta_data %>%
+  dplyr::select(cell, cell_type, sample_id = sample) 
+annotations %>%
+  dplyr::group_by(sample_id) %>%
+  dplyr::group_split() %>%
+  purrr::walk(function(df) {
+      sample_id <- unique(df$sample_id)
+      df %>%
+          dplyr::select(cell, cell_type) %>%
+          readr::write_tsv(
+            paste0('data/Zhang2023/annotations/', sample_id, '.tsv'),
+            col_names = F
+          )
+  })
+
+# mappings CSV (sample_id,raw_counts_matrix,annotations,id) ----
+mappings <-
+  list.files(
+    cellranger_dir,
+    pattern = '^BRI\\-',
+    include.dirs = T) %>%
+  tibble::enframe(value = 'sample_id') %>%
+  # get only sample_ids present in the annotations
+  dplyr::filter(sample_id %in% annotations$sample_id) %>%
+  # write file paths
+  dplyr::transmute(
+    sample_id,
+    raw_counts_matrix = paste0(processed_dir, 'raw_mRNA_count_matrix.rds'),
+    annotations = paste0(wd, '/data/Zhang2023/annotations/', sample_id, '.tsv'),
+    id = sample_id)
+mappings %>%
+  readr::write_csv('data/Zhang2023/mappings.csv')
+
+# check all files exist
+checks <-
+  tibble::tibble(
+    file = c(mappings$raw_counts_matrix, mappings$annotations)) %>%
+  dplyr::mutate(exists = file.exists(file)) %>%
+  dplyr::filter(!exists)
+if(nrow(checks) > 0) {
+  message('Files missing!\n', paste(checks$file, collapse = '\n'))
+  }
 
 # Zhang 2019 ---
 # mp34 previously ran inferCNV on RA samples from the Zhang 2019 paper. 

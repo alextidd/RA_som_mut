@@ -80,7 +80,10 @@ workflow {
     mappings = Channel.fromPath(params.mappings, checkIfExists: true) \
         | splitCsv(header:true, strip:true) \
         | map { row -> 
-            tuple(row.sample_id, row.raw_counts_matrix, row.annotations, row.id) } \
+            tuple(row.sample_id, 
+                  file(row.raw_counts_matrix, checkIfExists: true), 
+                  file(row.annotations, checkIfExists: true), 
+                  row.id) } \
         | infercnv
 
 }
