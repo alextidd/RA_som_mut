@@ -2,7 +2,10 @@
 library(magrittr)
 
 # dirs
-setwd('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/')
+wd <- 
+  ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') %>% 
+  paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') 
+setwd(wd)
 dat_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/'
 cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')

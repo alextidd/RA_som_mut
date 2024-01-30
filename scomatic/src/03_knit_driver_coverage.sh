@@ -10,4 +10,4 @@ cd $wd
 mamba activate jupy
 
 # knit
-Rscript -e "rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))"
+Rscript -e "rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = T)"

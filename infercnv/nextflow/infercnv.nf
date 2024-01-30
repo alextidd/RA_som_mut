@@ -10,15 +10,17 @@ process infercnv {
   tag "${sample_id}"
   label "week16core10gb"
 
-  publishDir "${params.output_dir}/${id}/${sample_id}",
+  publishDir (
+    path: "${params.output_dir}/${id}/${sample_id}",
     mode: 'copy',
-    pattern: "infercnv*"
-
+    pattern: "{infercnv*,preliminary.infercnv_obj,run.final.infercnv_obj}"
+    )
+    
   input:
     tuple val(sample_id), path(raw_counts_matrix), path(annotations), val(id)
     
   output:
-    tuple val(sample_id), path('out/*'), val(id)
+    tuple val(sample_id), path('*'), val(id)
 
   script:
     """
@@ -27,9 +29,6 @@ process infercnv {
     # libraries
     library(magrittr)
     library(Matrix)
-    
-    # dir
-    dir.create('out/')
 
     # subset matrix to cells in the sample
     annotations <- 
@@ -56,7 +55,7 @@ process infercnv {
         infercnv::run(
             infercnv_obj,
             cutoff = 0.1,                     # 0.1 for 10x-genomics
-            out_dir = 'out/',
+            out_dir = './',
             num_threads = 8, 
             window_length = 151,              # 51 is too small
             cluster_by_groups = TRUE,
@@ -68,9 +67,6 @@ process infercnv {
             sd_amplifier = 0.65,              # sets midpoint for logistic
             noise_logistic = F,
             resume_mode = T)
-
-    # save output infercnv object
-    saveRDS(infercnv_obj, 'out/infercnv_obj.rds')
     """
 }
 

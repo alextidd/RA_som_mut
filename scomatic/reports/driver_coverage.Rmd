@@ -39,19 +39,115 @@ dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 
 ### Drivers
 
-Genes of interest ('drivers') in rheumatoid arthritis are loaded. Their coverage in the dataset, across samples and cell types, will be checked.
+Genes of interest in rheumatoid arthritis (hereafter referred to as 'drivers') are defined as genes that are found to undergo significant selection (q-value < 0.2) according to the whole exome and targeted NanoSeq data. The coverage of these sites in the dataset, across samples and celltypes, will be checked.
 
-```{r drivers, warning=F, message=F}
+First, we read in the dNdS results and filter by q-value.
+
+```{r read_dnds, warning = F, message = F}
+# read in dnds results
+muts <-
+  'data/dnds_nanoseq/' %>%
+  list.files(pattern = 'nanoseq') %>%
+  purrr::map(function(assay) {
+    list.files(paste0('data/dnds_nanoseq/', assay), 
+               pattern = '_dnds_sel_cv.tsv', 
+               full.names = T) %>%
+      purrr::map(function(file) {
+        file %>%
+          readr::read_tsv(show_col_types = F) %>%
+          dplyr::mutate(
+            assay = assay,
+            celltype = file %>% 
+              basename() %>% 
+              gsub('_dnds_sel_cv.tsv', '', .))
+      }) %>%
+      dplyr::bind_rows()
+  }) %>%
+  dplyr::bind_rows() %>%
+  dplyr::select(assay, celltype, everything())
+
+# get genes with strong evidence (q-value)
 drivers <-
-  readr::read_tsv('data/driver_genes/driver_gene_coords_for_coverage.tsv')
-knitr::kable(drivers)
+  muts %>%
+  dplyr::filter(qglobal_cv < 0.2) %>%
+  dplyr::rename(gene = gene_name)
+
+# manually write aliases for genes that are not matched
+# HIST1H3B -> H3C2
+# HIST1H1E -> H1-4
+# CRIPAK   -> This record has been withdrawn by NCBI, after discussions with 
+#             CCDS collaborators. It was decided that this locus is not an 
+#             independent gene.
+drivers <-
+  drivers %>%
+  dplyr::mutate(
+    gene_fixed = dplyr::case_when(
+      gene == 'HIST1H3B' ~ 'H3C2',
+      gene == 'HIST1H1E' ~ 'H1-4',
+      TRUE ~ gene
+    )
+  )
+```
+
+```{r plot_drivers, class.source = "fold-hide", warning = F, message = F}
+drivers %>%
+  dplyr::distinct(celltype, gene, assay, qglobal_cv) %>%
+  dplyr::mutate(neglog10q = -log10(qglobal_cv)) %>%
+  ggplot(aes(x = tidytext::reorder_within(gene, -neglog10q, celltype), 
+             y = neglog10q, fill = celltype)) +
+  geom_col(position = 'dodge') +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = -90, hjust = 0)) +
+  facet_grid(assay ~ celltype, scales = 'free_x', space = 'free_x') +
+  tidytext::scale_x_reordered() +
+  labs(x = 'gene', y = '-log10(p)')
+```
+
+```{r drivers_df, echo = F}
+drivers %>%
+  knitr::kable("html") %>% 
+  kableExtra::kable_styling("striped", full_width = F) %>% 
+  kableExtra::scroll_box(width = "100%", height = "300px")
+```
+
+In order to calculate their coverage in the BAMs, we must get their positions.
+
+```{r get_driver_pos}
+# load biomart
+library(biomaRt)
+
+# load ref
+ensembl <- useEnsembl(biomart = 'ensembl',
+                      dataset = 'hsapiens_gene_ensembl')
+
+# get positions
+drivers_pos <-
+  getBM(attributes = c('hgnc_symbol', 'chromosome_name', 'start_position', 'end_position'),
+        filters = 'hgnc_symbol', values = unique(drivers$gene),
+        mart = ensembl) %>%
+  # fix colnames
+  dplyr::mutate(gene = hgnc_symbol, 
+                chr = chromosome_name, 
+                start = start_position,
+                end = end_position) %>%
+  # remove weird chromosomes
+  dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
+
+# save positions
+drivers_pos %>% 
+  dplyr::group_by(gene) %>%
+  dplyr::summarise(coords = 
+                     paste0(unique(chromosome_name), ':', 
+                            min(start_position), '-', 
+                            max(end_position))) %>%
+  readr::write_tsv('data/driver_genes/driver_gene_coords_for_coverage.tsv')
 ```
 
 ### Calculate coverage, by sample and by sample-x-celltype
 
-We use `samtools depth` to get the coverage of each site in the genes of interest, both across each sample and within each cell type in each sample.
+We use `samtools depth` to get the coverage of each site in the drivers, both across each sample and within each cell type in each sample.
 
-```{bash cov, eval=F}
+```{bash cov, eval = T}
 # activate conda env
 mamba activate jupy
 
