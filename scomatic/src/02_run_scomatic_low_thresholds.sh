@@ -16,9 +16,10 @@ mamba activate jupy
 # run scomatic
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     --projectDir $PWD \
+    --min_dp 1 \
+    --output_dir '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/low_thresholds/' \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
-    -c config/low_thresholds.config \
     -c $config_dir/LSF.config \
     -w work/ \
     --location local \
@@ -28,9 +29,10 @@ mamba activate jupy
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     -entry genotypes \
     --projectDir $PWD \
+    --min_dp 1 \
+    --output_dir '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/low_thresholds/' \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
-    -c config/low_thresholds.config \
     -c $config_dir/LSF.config \
     -w work/ \
     --location local \

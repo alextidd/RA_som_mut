@@ -17,5 +17,6 @@ mamba activate jupy
     -c config/Zhang2023.config \
     -c config/infercnv.config \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-    -w work/ # -resume
+    -w work/ \
+    -resume
     
