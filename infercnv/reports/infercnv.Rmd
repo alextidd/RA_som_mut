@@ -1,0 +1,91 @@
+---
+title: "Copy number variants in rheumatoid arthritis data from inferCNV"
+author: "Alexandra Tidd"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 8
+    keep_md: true
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 4
+    theme: lumen
+params:
+    rerun: true
+---
+
+```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
+# wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/') ; setwd(wd)
+# rmarkdown::render('reports/infercnv.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = T))
+
+knitr::opts_knit$set(root.dir = '../')
+knitr::opts_chunk$set(
+  warning = FALSE, 
+  dpi = 300, 
+  message = FALSE,
+  cache.path = 'reports/infercnv_cache/') 
+
+# libraries
+library(magrittr)
+library(ggplot2)
+library(gridExtra)
+library(slickR)
+
+# dev.off() if there is a device
+dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
+```
+
+inferCNV was run on the scRNA-seq data to call copy number variants in synovial cells. No reference group was used, so the average profile of all cells was used in each patient as the baseline. 
+
+```{r, results = 'asis'}
+pngs <-
+  list.files('out/Zhang2023/', pattern = '^BRI') %>% head %>%
+  purrr::set_names() %>%
+  purrr::map(function(sample_id) {
+    list.files(paste0('out/Zhang2023/', sample_id), pattern = '.png', 
+                     recursive = T, full.names = T) %>%
+      {setNames(., basename(.))}
+  })
+
+chunks <- c()
+
+for (sample_id in names(pngs)) {
+  
+  chunks <- c(chunks, paste0('\n#### ', sample_id))
+  
+  # for (i in names(pngs[[sample_id]])) {
+  #   
+  #   chunks <- c(chunks, paste0('\n##### ', i))
+    
+    knit_plot <- c(
+      '',
+      '```{r, warning = F, message = F, echo = F}',
+      paste0('slickR(obj = pngs[["', sample_id, '"]]) %synch% ',
+             '( slickR(names(pngs[["', sample_id, '"]]), slideType = "p") + settings(arrows = F) )'),
+      '```',
+      ''
+    )
+    knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
+    dev_off_if()
+    
+  }
+  
+  knit_plot <- c(
+    '',
+    '```{r, warning = F, message = F, echo = F}',
+    paste0('slickR(obj = pngs[["', sample_id, '"]]) %synch% ',
+           '( slickR(names(pngs[["', sample_id, '"]]), slideType = "p") + settings(arrows = F) )'),
+    '```',
+    ''
+  )
+  knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
+  dev_off_if()
+  
+  chunks <- c(chunks, knitted_plot)
+  
+}
+
+cat(unlist(chunks), sep = '\n')
+```

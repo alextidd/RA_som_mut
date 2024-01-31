@@ -5,7 +5,7 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     fig_width: 8
-    keep_md: true
+    keep_md: false
     code_folding: show
     toc: true
     toc_float: true
@@ -16,10 +16,9 @@ params:
     rerun: true
 ---
 
-
 ```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
-# wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') %>% paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
-# rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = T))
+# wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
+# rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
 
 knitr::opts_knit$set(root.dir = '../')
 knitr::opts_chunk$set(
@@ -89,7 +88,7 @@ drivers <-
   )
 ```
 
-```{r plot_drivers, class.source = "fold-hide", warning = F, message = F}
+```{r plot_drivers, class.source = "fold-hide", warning = F, message = F, fig.width = 10}
 drivers %>%
   dplyr::distinct(celltype, gene, assay, qglobal_cv) %>%
   dplyr::mutate(neglog10q = -log10(qglobal_cv)) %>%
@@ -112,26 +111,31 @@ drivers %>%
 
 In order to calculate their coverage in the BAMs, we must get their positions.
 
-```{r get_driver_pos}
-# load biomart
-library(biomaRt)
-
-# load ref
-ensembl <- useEnsembl(biomart = 'ensembl',
-                      dataset = 'hsapiens_gene_ensembl')
-
-# get positions
-drivers_pos <-
-  getBM(attributes = c('hgnc_symbol', 'chromosome_name', 'start_position', 'end_position'),
-        filters = 'hgnc_symbol', values = unique(drivers$gene),
-        mart = ensembl) %>%
-  # fix colnames
-  dplyr::mutate(gene = hgnc_symbol, 
-                chr = chromosome_name, 
-                start = start_position,
-                end = end_position) %>%
-  # remove weird chromosomes
-  dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
+```{r get_drivers_pos}
+drivers_pos <- xfun::cache_rds({
+  
+  # load ref
+  library(biomaRt)
+  ensembl <- useEnsembl(biomart = 'ensembl', dataset = 'hsapiens_gene_ensembl')
+  
+  # get positions
+  drivers_pos <-
+    getBM(attributes = c('hgnc_symbol', 'chromosome_name', 'start_position', 'end_position'),
+          filters = 'hgnc_symbol', values = unique(drivers$gene),
+          mart = ensembl) %>%
+    tibble::as_tibble() %>% 
+    # fix colnames
+    dplyr::mutate(gene = hgnc_symbol, 
+                  chr = chromosome_name, 
+                  start = start_position,
+                  end = end_position) %>%
+    # remove weird chromosomes
+    dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
+  
+  # return
+  drivers_pos
+  
+}, file = 'drivers_pos.rds')
 
 # save positions
 drivers_pos %>% 
