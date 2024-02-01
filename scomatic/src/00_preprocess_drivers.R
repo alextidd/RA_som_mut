@@ -10,9 +10,11 @@ wd <-
   paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') 
 setwd(wd)
 
-# load ref
-ensembl <- useEnsembl(biomart = 'ensembl',
-                      dataset = 'hsapiens_gene_ensembl')
+# Genes of interest in rheumatoid arthritis (hereafter referred to as 'drivers') 
+# are defined as genes that are found to undergo significant selection (q-value 
+# < 0.2) according to the whole exome and targeted NanoSeq data. The coverage of 
+# these sites in the dataset, across samples and celltypes, will be checked.
+# First, we read in the dNdS results and filter by q-value.
 
 # read in dnds results
 muts <-
@@ -36,20 +38,13 @@ muts <-
   dplyr::bind_rows() %>%
   dplyr::select(assay, celltype, everything())
 
-# get genes with strong evidence
+# get genes with strong evidence (q-value)
 drivers <-
   muts %>%
   dplyr::filter(qglobal_cv < 0.2) %>%
   dplyr::rename(gene = gene_name)
 
-# get positions
-drivers_pos <-
-  getBM(attributes = c('hgnc_symbol', 'chromosome_name', 'start_position', 'end_position'),
-        filters = 'hgnc_symbol', values = unique(drivers$gene),
-        mart = ensembl)
-
-# manually get aliases for genes that are not matched
-unique(drivers$gene[!drivers$gene %in% drivers_pos$hgnc_symbol])
+# manually write aliases for genes that are not matched
 # HIST1H3B -> H3C2
 # HIST1H1E -> H1-4
 # CRIPAK   -> This record has been withdrawn by NCBI, after discussions with 
@@ -65,46 +60,7 @@ drivers <-
     )
   )
 
-# get positions again
-drivers_pos <-
-  getBM(attributes = c('hgnc_symbol', 'ensembl_transcript_id',
-                       'chromosome_name', 'start_position', 'end_position'),
-        filters = 'hgnc_symbol', values = unique(drivers$gene_fixed),
-        mart = ensembl)
-
-# check if it was fixed
-unique(drivers$gene_fixed[!drivers$gene_fixed %in% drivers_pos$hgnc_symbol])
-
-# get exon positions
-drivers_exons <-
-  getBM(attributes = c('ensembl_transcript_id', 'exon_chrom_start', 'exon_chrom_end'),
-        filters = 'hgnc_symbol', values = unique(drivers$gene_fixed),
-        mart = ensembl)
-
-# combine spans + exons
-drivers_info <-
-  dplyr::left_join(
-    drivers_pos,
-    drivers_exons
-  ) %>%
-  tibble::as_tibble() %>%
-  dplyr::transmute(
-    gene = hgnc_symbol,
-    ensembl_transcript_id,
-    chr = chromosome_name,
-    start = start_position,
-    end = end_position,
-    exon_start = exon_chrom_start,
-    exon_end = exon_chrom_end
-  ) %>%
-  # filter weird chromosomes
-  dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y'))) %>%
-  # number exons
-  dplyr::group_by(gene, ensembl_transcript_id) %>%
-  dplyr::arrange(exon_start, .by_group = T) %>%
-  dplyr::mutate(exon = paste0('exon', dplyr::row_number()))
-
-# plot genes with strong evidence
+# plot drivers
 drivers %>%
   dplyr::distinct(celltype, gene, assay, qglobal_cv) %>%
   dplyr::mutate(neglog10q = -log10(qglobal_cv)) %>%
@@ -117,8 +73,32 @@ drivers %>%
   tidytext::scale_x_reordered() +
   labs(x = 'gene', y = '-log10(p)')
 
-# save coords for coverage
-drivers_info %>% 
+# In order to calculate their coverage in the BAMs, we must get their positions.
+
+# load ref
+library(biomaRt)
+ensembl <- useEnsembl(biomart = 'ensembl', dataset = 'hsapiens_gene_ensembl')
+
+# get positions
+drivers_pos <-
+  getBM(attributes = c('hgnc_symbol', 'chromosome_name', 'start_position', 'end_position'),
+        filters = 'hgnc_symbol', values = unique(drivers$gene),
+        mart = ensembl) %>%
+  tibble::as_tibble() %>% 
+  # fix colnames
+  dplyr::mutate(gene = hgnc_symbol, 
+                chr = chromosome_name, 
+                start = start_position,
+                end = end_position) %>%
+  # remove weird chromosomes
+  dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
+
+# save positions
+drivers_pos %>% 
   dplyr::group_by(gene) %>%
-  dplyr::summarise(coords = paste0(unique(chr), ':', min(start), '-', max(end))) %>%
+  dplyr::summarise(coords = 
+                     paste0(unique(chromosome_name), ':', 
+                            min(start_position), '-', 
+                            max(end_position))) %>%
   readr::write_tsv('data/driver_genes/driver_gene_coords_for_coverage.tsv')
+
