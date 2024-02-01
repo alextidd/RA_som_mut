@@ -12,10 +12,18 @@ mkdir -p work/ out/ log/
 . ~/.bashrc
 mamba activate jupy
 
-# run infercnv
+# # run infercnv
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#     -c config/Zhang2023.config \
+#     -c config/infercnv.config \
+#     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#     -w work/ \
+#     -resume
+    
+# run infercnv wo immune
 /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-    -c config/Zhang2023.config \
+    -c config/Zhang2023_wo_immune.config \
     -c config/infercnv.config \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-    -w work/ #-resume
-    
+    -w work/ \
+    -resume

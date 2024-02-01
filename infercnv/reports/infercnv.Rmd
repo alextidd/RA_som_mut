@@ -41,50 +41,41 @@ inferCNV was run on the scRNA-seq data to call copy number variants in synovial 
 
 ```{r, results = 'asis'}
 pngs <-
-  list.files('out/Zhang2023/', pattern = '^BRI') %>% head %>%
+  list.files('out/Zhang2023/', pattern = '^BRI') %>%
   purrr::set_names() %>%
   purrr::map(function(sample_id) {
-    list.files(paste0('out/Zhang2023/', sample_id), pattern = '.png', 
-                     recursive = T, full.names = T) %>%
-      {setNames(., basename(.))}
+    lis <-
+      list.files(paste0('out/Zhang2023/', sample_id), pattern = '.png', 
+                 recursive = T, full.names = T) %>%
+      {setNames(., gsub('infercnv.', '', tools::file_path_sans_ext(basename(.))))}
+    
+    # reorder
+    c(lis['infercnv'], lis[names(lis) != 'infercnv'])
   })
 
 chunks <- c()
 
 for (sample_id in names(pngs)) {
   
-  chunks <- c(chunks, paste0('\n#### ', sample_id))
+  chunks <- c(chunks, paste0('\n### ', sample_id))
   
-  # for (i in names(pngs[[sample_id]])) {
-  #   
-  #   chunks <- c(chunks, paste0('\n##### ', i))
+  for (i in names(pngs[[sample_id]])) {
+
+    chunks <- c(chunks, paste0('\n#### ', i))
     
     knit_plot <- c(
       '',
       '```{r, warning = F, message = F, echo = F}',
-      paste0('slickR(obj = pngs[["', sample_id, '"]]) %synch% ',
-             '( slickR(names(pngs[["', sample_id, '"]]), slideType = "p") + settings(arrows = F) )'),
+      paste0('knitr::include_graphics("../', pngs[[sample_id]][[i]], '")'),
       '```',
       ''
     )
     knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
     dev_off_if()
+
+    chunks <- c(chunks, knitted_plot)
     
   }
-  
-  knit_plot <- c(
-    '',
-    '```{r, warning = F, message = F, echo = F}',
-    paste0('slickR(obj = pngs[["', sample_id, '"]]) %synch% ',
-           '( slickR(names(pngs[["', sample_id, '"]]), slideType = "p") + settings(arrows = F) )'),
-    '```',
-    ''
-  )
-  knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
-  dev_off_if()
-  
-  chunks <- c(chunks, knitted_plot)
-  
 }
 
 cat(unlist(chunks), sep = '\n')

@@ -3,7 +3,7 @@ library(magrittr)
 
 # dirs
 wd <- 
-  ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') %>%
+  ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |>
   paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/') 
 setwd(wd)
 
@@ -11,52 +11,88 @@ setwd(wd)
 dat_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/'
 cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')
-dir.create('data/Zhang2023/annotations/', recursive = T)
 
 # annotations TSVs (cell celltype) ----
+
+# all celltypes
+dir.create('data/Zhang2023/annotations/', recursive = T)
 annotations <-
   readRDS(paste0(processed_dir, 'all_cells_reference.rds'))$meta_data %>%
-  dplyr::select(cell, cell_type, sample_id = sample) 
+  dplyr::select(cell, celltype = cell_type, sample_id = sample) 
 annotations %>%
-  dplyr::group_by(sample_id) %>%
-  dplyr::group_split() %>%
-  purrr::walk(function(df) {
-      sample_id <- unique(df$sample_id)
+  {split(., .$sample_id)} %>%
+  purrr::walk2(.x = names(.), .y = ., function(sample_id, df) {
       df %>%
-          dplyr::select(cell, cell_type) %>%
+          dplyr::select(cell, celltype) %>%
           readr::write_tsv(
             paste0('data/Zhang2023/annotations/', sample_id, '.tsv'),
             col_names = F
           )
   })
 
+# wo immune celltypes
+dir.create('data/Zhang2023/annotations_wo_immune/', recursive = T)
+immune_cts <- c('NK', 'B cell/plasma cell', 'Myeloid cell', 'T cell')
+annotations %>%
+  dplyr::filter(!(celltype %in% immune_cts)) %>%
+  {split(., .$sample_id)} %>%
+  purrr::walk2(.x = names(.), .y = ., function(sample_id, df) {
+    df %>%
+      dplyr::select(cell, celltype) %>%
+      readr::write_tsv(
+        paste0('data/Zhang2023/annotations_wo_immune/', sample_id, '.tsv'),
+        col_names = F
+      )
+  })
+
 # mappings CSV (sample_id,raw_counts_matrix,annotations,id) ----
+
+# all celltypes
 mappings <-
   list.files(
     cellranger_dir,
     pattern = '^BRI\\-',
     include.dirs = T) %>%
-  tibble::enframe(value = 'sample_id') %>%
-  # get only sample_ids present in the annotations
-  dplyr::filter(sample_id %in% annotations$sample_id) %>%
+  tibble::tibble(sample_id = .)  %>%
   # write file paths
   dplyr::transmute(
     sample_id,
     raw_counts_matrix = paste0(processed_dir, 'raw_mRNA_count_matrix.rds'),
     annotations = paste0(wd, '/data/Zhang2023/annotations/', sample_id, '.tsv'),
     id = sample_id)
-mappings %>%
-  readr::write_csv('data/Zhang2023/mappings.csv')
 
-# check all files exist
+# wo immune celltypes
+mappings_wo_immune <- 
+  mappings %>%
+  dplyr::mutate(
+    annotations = paste0(wd, '/data/Zhang2023/annotations_wo_immune/', sample_id, '.tsv')
+  ) 
+
+# check annotations files exist
 checks <-
   tibble::tibble(
-    file = c(mappings$raw_counts_matrix, mappings$annotations)) %>%
+    file = c(mappings$raw_counts_matrix, 
+             mappings$annotations,
+             mappings_wo_immune$raw_counts_matrix,
+             mappings_wo_immune$annotations)) %>%
   dplyr::mutate(exists = file.exists(file)) %>%
   dplyr::filter(!exists)
 if(nrow(checks) > 0) {
   message('Files missing!\n', paste(checks$file, collapse = '\n'))
-  }
+}
+
+# write files
+filter_files <- function(df) {
+  df %>% 
+    dplyr::filter(file.exists(annotations), 
+                  file.exists(raw_counts_matrix))
+}
+mappings %>%
+  filter_files() %>%
+  readr::write_csv('data/Zhang2023/mappings.csv')
+mappings_wo_immune %>%
+  filter_files() %>%
+  readr::write_csv('data/Zhang2023/mappings_wo_immune.csv')
 
 # Zhang 2019 ---
 # mp34 previously ran inferCNV on RA samples from the Zhang 2019 paper. 
