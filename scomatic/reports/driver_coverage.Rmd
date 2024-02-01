@@ -14,6 +14,8 @@ output:
     theme: lumen
 params:
     rerun: true
+    gene: NULL
+    coords: NULL
 ---
 
 ```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
@@ -38,7 +40,7 @@ dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 
 ### Calculate coverage, by sample and by sample-x-celltype
 
-We use `samtools depth` to get the coverage of each site in the drivers, both across each sample and within each cell type in each sample.
+We use `samtools depth` to get the coverage of each site in the drivers, both across each sample and within each celltype in each sample.
 
 ```{bash cov, eval = T}
 # activate conda env
