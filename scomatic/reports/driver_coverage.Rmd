@@ -1,0 +1,250 @@
+---
+title: "Driver coverage"
+author: "Alexandra Tidd"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 8
+    keep_md: false
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 4
+    theme: lumen
+params:
+  id: NULL
+  depths: NULL
+  drivers: NULL
+  ref_cds: NULL
+  cache_dir: './driver_coverage_cache/'
+  rerun: true
+---
+
+```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
+# wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
+# rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
+
+knitr::opts_knit$set(root.dir = './')
+knitr::opts_chunk$set(
+  warning = FALSE, 
+  dpi = 300, 
+  message = FALSE,
+  cache.path = params$cache_dir) 
+
+# libraries
+library(magrittr)
+library(ggplot2)
+library(gridExtra)
+
+# dev.off() if there is a device
+dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
+```
+
+We read in drivers and their depths.
+
+```{r read_cov}
+# read coverage
+cov <- xfun::cache_rds({
+  cov <- 
+    readr::read_tsv('depths.tsv') %>% 
+    dplyr::mutate(chr = as.character(chr))
+  cov
+}, file = 'cov.rds', rerun = params$rerun)
+
+# read drivers
+drivers <- readr::read_tsv(params$drivers)
+```
+
+### Annotate exons and introns
+
+We use the reference object from DNDSCV to delimit intronic and exonic regions of the genes.
+
+```{r features}
+# get ref_cds object from DNDSCV
+ref_cds <- 
+  readRDS(params$ref_cds)
+
+# annotate gene features
+cov <- xfun::cache_rds({
+  
+  # get all positions in each gene
+  gene_spans <-
+    ref_cds[c(drivers$gene)] %>%
+    purrr::map(function(i) {
+      tibble::tibble(
+        chr = as.character(i$chr),
+        start = i$intervals_cds[, 1],
+        end = i$intervals_cds[, 2]) %>%
+        dplyr::mutate(exon = paste0('exon', dplyr::row_number()))
+    })
+  
+  # drop those not found
+  gene_spans[is.na(names(gene_spans))] <- NULL
+  
+  # annotate exons
+  exons <-
+    gene_spans %>%
+    dplyr::bind_rows(.id = 'gene') %>%
+    dplyr::mutate(pos = purrr::map2(start, end, ~ .x:.y)) %>%
+    tidyr::unnest(cols = 'pos') %>%
+    dplyr::select(-start, -end)
+  cov <-
+    cov %>%
+    dplyr::left_join(exons, by = c('chr', 'pos', 'gene')) %>%
+    dplyr::mutate(exon = ifelse(is.na(exon), 'intron', exon),
+                  feature = ifelse(exon == 'intron', 'intron', 'exon'))
+  
+  # return
+  cov
+  
+}, file = 'cov_w_features.rds', rerun = params$rerun)
+```
+
+```{r plots}
+# get exon coords for plotting
+exon_coords <- xfun::cache_rds({
+  exon_coords <-
+    cov %>%
+    dplyr::filter(feature == 'exon') %>%
+    dplyr::group_by(gene, exon) %>%
+    dplyr::summarise(start = min(pos), 
+                     end = max(pos))
+  exon_coords
+}, file = 'exon_coords.rds', rerun = params$rerun)
+
+# function: plot all
+plot_all <- function(p_df, p_exon_coords, p_title) {
+  ggplot() +
+    geom_rect(
+      data = p_exon_coords,
+      aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf),
+      colour = 'lightblue', fill = 'lightblue'
+    ) +
+    geom_col(
+      data = p_df,
+      aes(x = pos, y = depth, fill = feature)) +
+    theme_classic() +
+    theme(panel.border = element_rect(fill = NA),
+          panel.spacing = unit(.05, 'lines')) +
+    scale_fill_manual(values = c(exon = 'darkblue', intron = 'darkgrey')) +
+    labs(title = paste(p_title, '(all)')) +
+    facet_grid(celltype ~ ., space = 'free_x', scales = 'free_x') 
+}
+
+# function: plot exons 
+plot_exons <- function(p_df, p_title) {
+  p_df %>%
+    # get only exonic sequence
+    dplyr::filter(feature == 'exon') %>%
+    # fix exon ordering
+    dplyr::mutate(
+      exon = exon %>% forcats::fct_reorder(exon %>% gsub('exon', '', .) %>% as.numeric())
+    ) %>%
+    ggplot(aes(x = pos, y = depth, group = celltype)) +
+    geom_col(fill = 'darkblue') +
+    theme_classic() +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          panel.spacing = unit(.05, 'lines'),
+          panel.border = element_rect(fill = NA)) +
+    labs(title = paste(p_title, '(exons)')) +
+    facet_grid(celltype ~ exon, space = 'free_x', scales = 'free_x') 
+}
+
+# create list of plots by gene x sample
+p <- xfun::cache_rds({
+  
+  # initiate plot list
+  p <- list()
+  n_cts <- list()
+  
+  cov %>% 
+    dplyr::group_by(gene) %>%
+    dplyr::group_split() %>%
+    purrr::map(function(df_i) {
+      
+      # for testing:
+      # cov %>% dplyr::group_by(gene) %>% dplyr::group_split() %>% {.[[1]]} -> df_i
+      
+      # get info
+      gene_i <- unique(df_i$gene)
+      p[[gene_i]] <<- list()
+      
+      # get number of celltypes for plot dims
+      p[[gene_i]]$n_cts <<- 
+        df_i %>% 
+        dplyr::filter(!is.na(celltype)) %>% 
+        dplyr::pull(celltype) %>% 
+        dplyr::n_distinct()
+      
+      # plot by sample and by celltype
+      df_i %>%
+        dplyr::mutate(suffix = dplyr::case_when(is.na(celltype) ~ '',
+                                                TRUE ~ '_by_celltype')) %>%
+        {split(., .$suffix)} %>%
+        purrr::map(function(lvl) {
+          
+          # get suffix
+          p_suffix <- unique(lvl$suffix)
+          
+          # plot all
+          p[[gene_i]][[paste0('all', p_suffix)]] <<-
+            plot_all(
+              p_df = lvl,
+              p_exon_coords = exon_coords %>% dplyr::filter(gene == gene_i),
+              p_title = paste0(gene_i, p_suffix)
+            )
+          
+          # plot exons
+          p[[gene_i]][[paste0('exons', p_suffix)]] <<-
+            plot_exons(
+              p_df = lvl,
+              p_title = paste0(gene_i, p_suffix)
+            )
+        })
+    })
+  
+  # return 
+  p
+  
+}, file = 'plots.rds', rerun = params$rerun)
+```
+
+```{r knit_plots, echo = F, warning = F, message = F, results = 'asis'}
+chunks <- c()
+
+for (info in names(p)) {
+  chunks <- c(chunks, paste0('\n####', info))
+  message(info)
+  
+  knit_plot <- c(
+    '',
+    paste0('```{r ', info, ', class.source = "fold-hide", warning = F, message = F, ',
+           'fig.dim = c(20, ', 4 + 4 * p[[info]]$n_cts, ')}'),
+    paste0('p_i <- p[["', info, '"]]'),
+    paste0('grid.arrange(p_i$all, p_i$all_by_celltype, p_i$exons, p_i$exons_by_celltype, ncol = 1, ',
+           'heights = c(2, p_i$n_cts * 2, 2, p_i$n_cts * 2))'),
+    '```',
+    '')
+  knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
+  dev_off_if()
+  
+  chunks <- c(chunks, knitted_plot)
+}
+dev_off_if()
+
+# evaluate chunks
+cat(unlist(chunks), sep = '\n')
+```
+
+```{r mean_coverage}
+cov %>%
+  dplyr::filter(lvl == 'drivers_samtools_depth') %>%
+  dplyr::group_by(sample, gene, feature) %>%
+  dplyr::summarise(mean_depth = mean(depth)) %>%
+  ggplot(aes(x = sample, y = mean_depth, fill = feature)) +
+  geom_col(position = 'dodge') +
+  facet_grid(gene ~ .) +
+  theme_classic()
+```
