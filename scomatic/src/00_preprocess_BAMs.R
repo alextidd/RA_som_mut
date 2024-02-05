@@ -15,14 +15,15 @@ dir.create('data/')
 # mappings CSV (sample_id,bam_file,id) -----
 dir.create('data/Zhang2023/')
 list.files(
-        cellranger_dir,
-        pattern = '^BRI\\-',
-        include.dirs = T) %>%
-    tibble::enframe(value = 'path_id') %>%
-    dplyr::transmute(
-        sample_id = gsub('-', '_', path_id),
-        bam_file = paste0(cellranger_dir, path_id, '/possorted_genome_bam.bam'),
-        id = gsub('-', '_', path_id)) %>%
+      cellranger_dir,
+      pattern = 'possorted_genome_bam.bam$',
+      recursive = T, full.names = T) %>%
+  tibble::tibble(bam_file = .) %>%
+  # get parent directory (= id)
+  dplyr::mutate(
+    sample_id = bam_file %>% dirname() %>% basename() %>% gsub('-', '_', .),
+    id = sample_id
+  ) %>%
     readr::write_csv('data/Zhang2023/mappings.csv')
 
 # celltypes TSV (Index Cell_type) -----

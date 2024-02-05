@@ -85,12 +85,12 @@ process infercnv {
       infercnv_obj %>%
       infercnv::apply_median_filtering()
       
-    # plot smoothed output
-    infercnv_obj %>%
-      infercnv::plot_cnv(
-        output_filename = 'infercnv.median_filtered',
-        x.center = 1,
-        colour_safe_pal = F)
+    # # plot smoothed output
+    # infercnv_obj %>%
+    #  infercnv::plot_cnv(
+    #    output_filename = 'infercnv.median_filtered',
+    #    x.center = 1,
+    #    color_safe_pal = F)
     """
 }
 

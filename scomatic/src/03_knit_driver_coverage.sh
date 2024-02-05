@@ -12,18 +12,25 @@ mamba activate jupy
 # # knit
 # Rscript -e "rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))"
 
-# create mappings
+# create mappings 
 bams_dir=/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/
 ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/default_thresholds/
 out_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/
 (
   echo 'id,bam,celltype' ;
   while read -r id ; do
-    echo "$id,$bams_dir/$id/possorted_genome_bam.bam,NA" ;
-    for file in $ct_bams_dir/${id/-/_}/celltype_bams/*.bam ; do
-      ct=$(basename $file | cut -d. -f2)
-      echo "$id,$file,$ct" ;
-    done
+    # check if ct bams directory exists
+    if [ -d $ct_bams_dir/${id/-/_}/ ] ; then 
+      ct_bams=($(ls $ct_bams_dir/${id/-/_}/celltype_bams/*.bam))
+      # check if scomatic successfully ran
+      if [ ${#ct_bams[*]} -gt 0 ] ; then
+        echo "$id,$bams_dir/$id/possorted_genome_bam.bam,NA" ;
+        for file in ${ct_bams[@]} ; do
+          ct=$(basename $file | cut -d. -f2)
+          echo "$id,$file,$ct" ;
+        done
+      fi
+    fi
   done < \
   <(sed 1d /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/data/Zhang2023/mappings.csv | cut -d, -f1 | sort -u)
 ) | cat > data/Zhang2023/coverage_mappings.csv

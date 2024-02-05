@@ -139,7 +139,6 @@ workflow {
       meta = row.subMap('id', 'celltype') 
       [meta, file(row.bam, checkIfExists: true)]
   }
-  | view 
   | set { mappings }
   
   // download or locally link bams
@@ -160,7 +159,6 @@ workflow {
   coverage.out.depths 
   | map { meta, depths -> [meta.subMap('id'), depths] }
   | groupTuple
-  | view 
   | concat_depths
   
   // knit report
