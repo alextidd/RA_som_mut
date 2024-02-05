@@ -36,6 +36,7 @@ process local {
   tag "${meta.id}"
   maxForks 10
   label 'normal4core'
+  errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
   input:
     tuple val(meta), val(bam)
   output:

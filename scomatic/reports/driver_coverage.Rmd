@@ -25,7 +25,7 @@ params:
 # wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
 # rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
 
-knitr::opts_knit$set(root.dir = '../')
+#knitr::opts_knit$set(root.dir = '../')
 knitr::opts_chunk$set(
   warning = FALSE, 
   dpi = 300, 
@@ -215,7 +215,7 @@ p <- xfun::cache_rds({
 chunks <- c()
 
 for (info in names(p)) {
-  chunks <- c(chunks, paste0('\n####', info))
+  chunks <- c(chunks, paste0('\n#### ', info))
   message(info)
   
   knit_plot <- c(
