@@ -3,7 +3,7 @@ nextflow.enable.dsl=2
 // expected command line argyments
 params.mappings = null
 params.gene_order_file = null
-params.output_dir = './'
+params.out_dir = './'
 
 // perform infercnv on each sample
 process infercnv {
@@ -11,7 +11,7 @@ process infercnv {
   label "week16core10gb"
 
   publishDir (
-    path: "${params.output_dir}/${id}/${sample_id}",
+    path: "${params.out_dir}/${id}/${sample_id}",
     mode: 'copy',
     pattern: "{infercnv*,preliminary.infercnv_obj,run.final.infercnv_obj}"
     )
@@ -54,19 +54,43 @@ process infercnv {
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            cutoff = 0.1,                     # 0.1 for 10x-genomics
             out_dir = './',
             num_threads = 8, 
-            window_length = 151,              # 51 is too small
             cluster_by_groups = TRUE,
-            HMM = TRUE,                       # turn on to auto-run the HMM prediction of CNV levels
-            HMM_transition_prob = 1e-6,
-            HMM_report_by = c("subcluster"),
             analysis_mode = c('subclusters'),
             denoise = T,
-            sd_amplifier = 0.65,              # sets midpoint for logistic
             noise_logistic = F,
-            resume_mode = T)
+            resume_mode = T,
+            
+            # window of 51 is too small
+            window_length = 151,              
+
+            # cutoff of 0.1 recommended for 10x-genomics
+            cutoff = 0.1,                     
+            
+            # turn on to auto-run the HMM prediction of CNV levels
+            HMM = TRUE,                       
+            HMM_transition_prob = 1e-6,
+            HMM_report_by = c("subcluster"),
+            
+            # sets midpoint for logistic
+            sd_amplifier = 0.65,
+            
+            # https://github.com/harbourlab/UPhyloplot2
+            tumor_subcluster_partition_method = 'random_trees'
+            )
+            
+    # apply median filtering
+    infercnv_obj <- 
+      infercnv_obj %>%
+      infercnv::apply_median_filtering()
+      
+    # plot smoothed output
+    infercnv_obj %>%
+      infercnv::plot_cnv(
+        output_filename = 'infercnv.median_filtered',
+        x.center = 1,
+        colour_safe_pal = F)
     """
 }
 

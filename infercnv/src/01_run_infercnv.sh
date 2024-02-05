@@ -8,22 +8,37 @@ wd=/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/
 cd $wd
 mkdir -p work/ out/ log/
 
+# annotation level
+lvl=clusters
+
 # conda activate an environment which has docopt installed so jsub works
 . ~/.bashrc
 mamba activate jupy
 
-# # run infercnv
+# # run infercnv on celltypes
 # /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-#     -c config/Zhang2023.config \
-#     -c config/infercnv.config \
-#     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-#     -w work/ \
-#     -resume
+#   --out_dir $wd/out/Zhang2023/$lvl/ \
+#   --mappings $wd/data/Zhang2023/mappings/$lvl.csv \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
     
-# run infercnv wo immune
+# # run infercnv on celltypes wo immune
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#   --out_dir $wd/out/Zhang2023/$lvl/ \
+#   --mappings $wd/data/Zhang2023/mappings/$lvl.csv \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
+    
+# run infercnv on clusters
 /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-    -c config/Zhang2023_wo_immune.config \
-    -c config/infercnv.config \
-    -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-    -w work/ \
-    -resume
+  --out_dir $wd/out/Zhang2023/$lvl/ \
+  --mappings $wd/data/Zhang2023/mappings/$lvl.csv \
+  -c config/infercnv.config \
+  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+  -w work/ \
+  -resume
+
