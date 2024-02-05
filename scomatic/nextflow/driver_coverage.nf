@@ -20,10 +20,10 @@ process irods {
     tuple val(meta), path("${meta.id}.bam"), path("${meta.id}.bam.bai"), emit: bams
   script:
     """
-    # create local symbolic link 
-    ln -s ${bam} ${meta.id}.bam
-    if [ -f "${bam}.bai" ] ; then
-        ln -s ${bam}.bai ${meta.id}.bam.bai
+    iget -K ${bam} ${meta.id}.bam
+    if [[ `ils ${bam}.bai | wc -l` == 1 ]]
+    then
+        iget -K ${bam}.bai ${meta.id}.bam.bai
     else
         samtools index -@ ${task.cpus} ${meta.id}.bam
     fi
@@ -71,7 +71,7 @@ process coverage {
         samtools depth -a -r \$coords -Q 30 ${bam} |
         awk -v gene=\$gene -v celltype="${meta.celltype}" '{print \$0"\\t"gene"\\t"celltype}'
       done < <(sed 1d ${params.drivers}) ;
-      
+
     ) | cat > depths_${meta.celltype}.tsv
     """
 }
@@ -122,8 +122,8 @@ process report {
 
 // main scomatic workflow
 workflow {
-  
-  // check sure input files have been passed
+
+  // check input files have been passed
   if (params.mappings == null) {
     error "Please provide a mappings CSV file via --mappings"
   }

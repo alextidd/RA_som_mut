@@ -40,6 +40,3 @@ cat data/Zhang2023/coverage_mappings.csv | head -10 > data/Zhang2023/coverage_ma
     --location local \
     -w work/ \
     -resume
-
-
-
