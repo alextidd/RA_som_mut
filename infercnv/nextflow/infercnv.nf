@@ -1,12 +1,12 @@
 nextflow.enable.dsl=2
 
-// command line argyments
-params.help = false
-params.mappings = null
-params.annotations = null
-params.gene_order_file = null
-params.out_dir = 'out/'
-params.annotation_col = 'celltype'
+// command line arguments
+params.help             = false
+params.mappings         = null
+params.annotations      = null
+params.gene_order_file  = null
+params.out_dir          = 'out/'
+params.annotation_col   = 'celltype'
 
 // help
 if (params.help) {
@@ -125,6 +125,9 @@ process infercnv {
       output_filename = 'infercnv.median_filtered',
       x.center = 1,
       color_safe_pal = F)
+      
+    # write metadata table
+    infercnv::add_to_seurat(infercnv_output_path = './')
     """
 }
 
