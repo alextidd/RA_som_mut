@@ -1,11 +1,33 @@
 nextflow.enable.dsl=2
 
-// expected command line arguments
+// command line arguments
 params.mappings = null
 params.drivers = null
-params.out_dir = null
-// we expect the mappings to be on irods by default
+params.out_dir = 'out/'
 params.location = "irods"
+
+// help
+if (params.help) {
+  help = \
+  """
+  |driver_converage.nf: get the coverage of a list of genes in a list of BAMs.
+  |
+  |Required arguments:
+  |   --mappings    path to the mappings CSV file, with columns `id` and `celltype`.
+  |   --drivers     path to the drivers TSV file, with columns `gene` and `coords`.
+  |                 coords must be in format 'chr:start-stop' (e.g. 1:12345-12456).
+  |
+  |Optional arguments:
+  |   --out_dir     path to output directory. default is `out/`.
+  |                 [default: ${params.out_dir}]
+  |   --location    either "irods" or "local"
+  |                 [default: ${params.location}]  
+  """.stripMargin()
+  
+  // print help and exit
+  println(help)
+  exit(0)
+}
 
 // Download a given sample's BAM from iRODS
 // Then either retrieve the BAI or make one via indexing

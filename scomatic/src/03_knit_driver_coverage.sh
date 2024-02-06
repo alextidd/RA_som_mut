@@ -35,8 +35,8 @@ out_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023
   <(sed 1d /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/data/Zhang2023/mappings.csv | cut -d, -f1 | sort -u)
 ) | cat > data/Zhang2023/coverage_mappings.csv
 
-# test mappings
-cat data/Zhang2023/coverage_mappings.csv | head -10 > data/Zhang2023/coverage_mappings_test.csv
+# # test mappings
+# cat data/Zhang2023/coverage_mappings.csv | head -10 > data/Zhang2023/coverage_mappings_test.csv
 
 # run
 /software/team205/nextflow-23.04.1-all run nextflow/driver_coverage.nf \
