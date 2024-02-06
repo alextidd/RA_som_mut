@@ -1,6 +1,7 @@
 nextflow.enable.dsl=2
 
 // command line arguments
+params.help = false
 params.mappings = null
 params.drivers = null
 params.out_dir = 'out/'
@@ -10,17 +11,19 @@ params.location = "irods"
 if (params.help) {
   help = \
   """
-  |driver_converage.nf: get the coverage of a list of genes in a list of BAMs.
+  |driver_converage.nf: get the coverage of a list of genes in a list of BAMs
   |
   |Required arguments:
-  |   --mappings    path to the mappings CSV file, with columns `id` and `celltype`.
-  |   --drivers     path to the drivers TSV file, with columns `gene` and `coords`.
-  |                 coords must be in format 'chr:start-stop' (e.g. 1:12345-12456).
+  |   --mappings    Path to the mappings CSV file with columns `id`, `celltype`, 
+  |                 and `bam`.
+  |   --drivers     Path to the drivers TSV file with columns `gene` and `coords`.
+  |                 Coords must be in the format 'chr:start-stop' 
+  |                 (e.g. 1:12345-12456).
   |
   |Optional arguments:
-  |   --out_dir     path to output directory. default is `out/`.
+  |   --out_dir     Path to the output directory. default is `out/`.
   |                 [default: ${params.out_dir}]
-  |   --location    either "irods" or "local"
+  |   --location    Either "irods" or "local".
   |                 [default: ${params.location}]  
   """.stripMargin()
   

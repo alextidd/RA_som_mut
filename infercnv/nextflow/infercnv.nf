@@ -1,26 +1,55 @@
 nextflow.enable.dsl=2
 
-// expected command line argyments
+// command line argyments
+params.help = false
 params.mappings = null
+params.annotations = null
 params.gene_order_file = null
-params.out_dir = './'
+params.out_dir = 'out/'
+params.annotation_col = 'celltype'
+
+// help
+if (params.help) {
+  help = \
+  """
+  |infercnv.nf: run inferCNV
+  |
+  |Required arguments:
+  |   --mappings        Path to the mappings CSV file, with columns `id` and 
+  |                     `raw_counts_matrix`.
+  |   --annotations     Path to the annotations TSV file, with columns `id`,
+  |                     `cell`, and the annotation column (specify with the 
+  |                     --annotation_col argument, default: 'celltype')
+  |   --gene_order_file Path to the headerless gene order TSV file, with columns 
+  |                     `gene`, `chr`, `start`, `stop`. See the inferCNV wiki 
+  |                     for details.
+  |
+  |Optional arguments:
+  |   --out_dir         Path to output directory. default is `out/`.
+  |                     [default: ${params.out_dir}]
+  |   --annotation_col  Column of the annotations file to use for defining 
+  |                     groups of cells.
+  |                     [default: ${params.annotation_col}]  
+  """.stripMargin()
+  
+  // print help and exit
+  println(help)
+  exit(0)
+}
 
 // perform infercnv on each sample
 process infercnv {
-  tag "${sample_id}"
-  label "week16core10gb"
+  tag "${meta.id}"
+  label "week16core20gb"
 
-  publishDir (
-    path: "${params.out_dir}/${id}/${sample_id}",
-    mode: 'copy',
-    pattern: "{infercnv*,preliminary.infercnv_obj,run.final.infercnv_obj}"
-    )
+  publishDir path: "${params.out_dir}/${meta.id}", mode: 'copy'
     
   input:
-    tuple val(sample_id), path(raw_counts_matrix), path(annotations), val(id)
+    tuple val(meta), path(raw_counts_matrix)
     
   output:
-    tuple val(sample_id), path('*'), val(id)
+    tuple val(meta), path('*')
+    tuple val(meta), path('*.png'), emit: pngs
 
   script:
     """
@@ -30,11 +59,17 @@ process infercnv {
     library(magrittr)
     library(Matrix)
 
-    # subset matrix to cells in the sample
+    # generate annotations file
     annotations <- 
-        readr::read_tsv("${annotations}", col_names = c('cell', 'celltype'))
+        readr::read_tsv('${params.annotations}') %>%
+        dplyr::filter(id == '${meta.id}') %>%
+        dplyr::transmute(cell, annotation = ${params.annotation_col})
+    annotations %>% 
+      readr::write_tsv('annotations.tsv', col_names = F)
+    
+    # subset matrix to cells in the sample
     raw_counts_matrix <- 
-        readRDS("${raw_counts_matrix}")
+        readRDS('${raw_counts_matrix}')
     raw_counts_matrix <-
       raw_counts_matrix[, colnames(raw_counts_matrix) %in% annotations\$cell]
 
@@ -42,9 +77,8 @@ process infercnv {
     infercnv_obj <-
         infercnv::CreateInfercnvObject(
             raw_counts_matrix = raw_counts_matrix,
-            annotations_file = "${annotations}",
-            delim = '\t',
-            gene_order_file = "${params.gene_order_file}",
+            annotations_file = 'annotations.tsv',
+            gene_order_file = '${params.gene_order_file}',
             ref_group_names = NULL)
     
     # run infercnv 
@@ -73,11 +107,11 @@ process infercnv {
             HMM_transition_prob = 1e-6,
             HMM_report_by = c("subcluster"),
             
-            # sets midpoint for logistic
-            sd_amplifier = 0.65,
+            # # https://github.com/harbourlab/UPhyloplot2
+            # tumor_subcluster_partition_method = 'random_trees',
             
-            # https://github.com/harbourlab/UPhyloplot2
-            tumor_subcluster_partition_method = 'random_trees'
+            # sets midpoint for logistic
+            sd_amplifier = 0.65
             )
             
     # apply median filtering
@@ -85,34 +119,68 @@ process infercnv {
       infercnv_obj %>%
       infercnv::apply_median_filtering()
       
-    # # plot smoothed output
-    # infercnv_obj %>%
-    #  infercnv::plot_cnv(
-    #    output_filename = 'infercnv.median_filtered',
-    #    x.center = 1,
-    #    color_safe_pal = F)
+    # plot smoothed output
+    infercnv_obj %>%
+    infercnv::plot_cnv(
+      output_filename = 'infercnv.median_filtered',
+      x.center = 1,
+      color_safe_pal = F)
+    """
+}
+
+// knit infercnv report
+process report {
+  tag "${meta.id}"
+  label 'long16core10gb'
+  publishDir "${params.out_dir}/${meta.id}/", mode: 'copy'
+  input:
+    tuple val(meta), path(pngs, stageAs: "?/*")
+    path(rmd)
+  output:
+    path('infercnv.html')
+    path(rmd)
+  script:
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    """
+    #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
+    rmarkdown::render(
+      '${rmd}', 
+      output_file = 'infercnv.html', 
+      output_dir = getwd())
     """
 }
 
 // main workflow
 workflow {
 
-    // check inputs
-    if (params.mappings == null) {
-        error "Please provide a mappings CSV file via --mappings"
-    }
-    if (params.gene_order_file == null) {
-        error "Please provide a gene order file via --gene_order_file"
-    }
+  // check inputs
+  if (params.mappings == null) {
+      error "Please provide a mappings CSV file via --mappings"
+  }
+  if (params.gene_order_file == null) {
+      error "Please provide a gene order file via --gene_order_file"
+  }
+  
+  // get metadata + bam paths
+  Channel.fromPath(params.mappings, checkIfExists: true) 
+  | splitCsv(header: true)
+  | map { row ->
+    meta = row.subMap('id')
+    [meta, file(row.raw_counts_matrix, checkIfExists: true)]
+  }
+  | set { mappings }
+  
+  // run infercnv
+  mappings 
+  | infercnv
 
-    // load the mappings
-    mappings = Channel.fromPath(params.mappings, checkIfExists: true) \
-        | splitCsv(header:true, strip:true) \
-        | map { row -> 
-            tuple(row.sample_id, 
-                  file(row.raw_counts_matrix, checkIfExists: true), 
-                  file(row.annotations, checkIfExists: true), 
-                  row.id) } \
-        | infercnv
-
+  // group all outputs
+  infercnv.out.pngs 
+  | collect 
+  | view 
+  | set { pngs }
+  
+  // knit report
+  report(pngs, "${baseDir}/../reports/infercnv.Rmd")
+  
 }
