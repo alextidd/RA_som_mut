@@ -67,9 +67,14 @@ ref_cds <-
 # annotate gene features
 cov <- xfun::cache_rds({
   
+  # only drivers in ref_cds
+  avail_drivers <-
+    drivers %>%
+    dplyr::filter(gene %in% names(ref_cds))
+  
   # get all positions in each gene
   gene_spans <-
-    ref_cds[c(drivers$gene)] %>%
+    ref_cds[c(avail_drivers$gene)] %>%
     purrr::map(function(i) {
       tibble::tibble(
         chr = as.character(i$chr),
@@ -77,9 +82,6 @@ cov <- xfun::cache_rds({
         end = i$intervals_cds[, 2]) %>%
         dplyr::mutate(exon = paste0('exon', dplyr::row_number()))
     })
-  
-  # drop those not found
-  gene_spans[is.na(names(gene_spans))] <- NULL
   
   # annotate exons
   exons <-
@@ -210,7 +212,7 @@ p <- xfun::cache_rds({
 }, file = 'plots.rds', rerun = params$rerun)
 ```
 
-```{r knit_plots, echo = F, warning = F, message = F, results = 'asis'}
+```{r knit_plots, echo = F, message = F, results = 'asis', warning = T, error = T}
 chunks <- c()
 
 for (info in names(p)) {
@@ -237,7 +239,7 @@ dev_off_if()
 cat(unlist(chunks), sep = '\n')
 ```
 
-```{r mean_coverage}
+```{r mean_coverage, eval = F}
 cov %>%
   dplyr::filter(lvl == 'drivers_samtools_depth') %>%
   dplyr::group_by(sample, gene, feature) %>%

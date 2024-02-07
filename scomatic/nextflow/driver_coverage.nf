@@ -1,11 +1,11 @@
 nextflow.enable.dsl=2
 
 // command line arguments
-params.help = false
-params.mappings = null
-params.drivers = null
-params.out_dir = 'out/'
-params.location = "irods"
+params.help       = false
+params.mappings   = null
+params.drivers    = null
+params.out_dir    = 'out/'
+params.location   = 'irods'
 
 // help
 if (params.help) {
