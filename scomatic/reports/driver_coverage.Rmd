@@ -14,7 +14,6 @@ output:
     theme: lumen
 params:
   id: NULL
-  depths: NULL
   drivers: NULL
   ref_cds: NULL
   cache_dir: './driver_coverage_cache/'
@@ -45,9 +44,15 @@ We read in drivers and their depths.
 ```{r read_cov}
 # read coverage
 cov <- xfun::cache_rds({
-  cov <- 
-    readr::read_tsv('depths.tsv') %>% 
-    dplyr::mutate(chr = as.character(chr))
+  cov <-
+    list.files(pattern = '_depths.tsv') %>% 
+    purrr::set_names(., gsub('_depths.tsv', '', .)) %>%
+    purrr::map(function(file) {
+      file %>%
+        readr::read_tsv() %>%
+        dplyr::mutate(chr = as.character(chr))
+    }) %>%
+    dplyr::bind_rows(.id = 'id')
   cov
 }, file = 'cov.rds', rerun = params$rerun)
 
@@ -161,48 +166,54 @@ p <- xfun::cache_rds({
   n_cts <- list()
   
   cov %>% 
-    dplyr::group_by(gene) %>%
-    dplyr::group_split() %>%
-    purrr::map(function(df_i) {
+    {split(., .$id)} %>%
+    purrr::map(function(df_id) {
       
-      # for testing:
-      # cov %>% dplyr::group_by(gene) %>% dplyr::group_split() %>% {.[[1]]} -> df_i
+      # get id, inititate sublist
+      id_i <- unique(df_id$id)
+      p[[id_i]] <<- list()
       
-      # get info
-      gene_i <- unique(df_i$gene)
-      p[[gene_i]] <<- list()
-      
-      # get number of celltypes for plot dims
-      p[[gene_i]]$n_cts <<- 
-        df_i %>% 
-        dplyr::filter(!is.na(celltype)) %>% 
-        dplyr::pull(celltype) %>% 
-        dplyr::n_distinct()
-      
-      # plot by sample and by celltype
-      df_i %>%
-        dplyr::mutate(suffix = dplyr::case_when(is.na(celltype) ~ '',
-                                                TRUE ~ '_by_celltype')) %>%
-        {split(., .$suffix)} %>%
-        purrr::map(function(lvl) {
+      # go by gene
+      df_id %>%
+        {split(., .$gene)} %>%
+        purrr::map(function(df_i) {
           
-          # get suffix
-          p_suffix <- unique(lvl$suffix)
+          # get gene, initiate sublist
+          gene_i <- unique(df_gene$gene)
+          p[[id_i]][[gene_i]] <<- list()
           
-          # plot all
-          p[[gene_i]][[paste0('all', p_suffix)]] <<-
-            plot_all(
-              p_df = lvl,
-              p_exon_coords = exon_coords %>% dplyr::filter(gene == gene_i),
-              p_title = paste0(gene_i, p_suffix)
-            )
+          # get number of celltypes for plot dims
+          p[[id_i]][[gene_i]]$n_cts <<- 
+            df_i %>% 
+            dplyr::filter(!is.na(celltype)) %>% 
+            dplyr::pull(celltype) %>% 
+            dplyr::n_distinct()
           
-          # plot exons
-          p[[gene_i]][[paste0('exons', p_suffix)]] <<-
-            plot_exons(
-              p_df = lvl,
-              p_title = paste0(gene_i, p_suffix)
-            )
+          # plot by sample and by celltype
+          df_i %>%
+            dplyr::mutate(suffix = dplyr::case_when(is.na(celltype) ~ '',
+                                                    TRUE ~ '_by_celltype')) %>%
+            {split(., .$suffix)} %>%
+            purrr::map(function(lvl) {
+              
+              # get suffix
+              p_suffix <- unique(lvl$suffix)
+              
+              # plot all
+              p[[id_i]][[gene_i]][[paste0('all', p_suffix)]] <<-
+                plot_all(
+                  p_df = lvl,
+                  p_exon_coords = exon_coords %>% dplyr::filter(gene == i),
+                  p_title = paste0(i, p_suffix)
+                )
+              
+              # plot exons
+              p[[id_i]][[gene_i]][[paste0('exons', p_suffix)]] <<-
+                plot_exons(
+                  p_df = lvl,
+                  p_title = paste0(i, p_suffix)
+                )
+            })
         })
     })
   

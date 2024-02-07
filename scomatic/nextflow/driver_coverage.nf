@@ -85,7 +85,7 @@ process coverage {
   input:
     tuple val(meta), path(bam), path(bai)
   output:
-    tuple val(meta), path('depths_*.tsv'), emit: depths
+    tuple val(meta), path('${meta.id}_depths_*.tsv'), emit: depths
   script:
     """
     (
@@ -98,7 +98,7 @@ process coverage {
         awk -v gene=\$gene -v celltype="${meta.celltype}" '{print \$0"\\t"gene"\\t"celltype}'
       done < <(sed 1d ${params.drivers}) ;
 
-    ) | cat > depths_${meta.celltype}.tsv
+    ) | cat > ${meta.id}_depths_${meta.celltype}.tsv
     """
 }
 
@@ -110,11 +110,11 @@ process concat_depths {
   input:
     tuple val(meta), path(depths)
   output:
-    tuple val(meta), path('depths.tsv'), emit: depths
+    path('${meta.id}_depths.tsv')
   script:
     """
-    head -n1 depths_NA.tsv > depths.tsv
-    tail -n +2 -q depths_*.tsv >> depths.tsv
+    head -n1 ${meta.id}_depths_NA.tsv > ${meta.id}_depths.tsv
+    tail -n +2 -q ${meta.id}_depths_*.tsv >> ${meta.id}_depths.tsv
     """
 }
 
@@ -122,9 +122,9 @@ process concat_depths {
 process report {
   tag "${meta.id}"
   label 'long16core10gb'
-  publishDir "${params.out_dir}/${meta.id}/", mode: 'copy'
+  publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
-    tuple val(meta), path(depths)
+    path(depths)
     path(rmd)
   output:
     path('driver_coverage.html')
@@ -135,9 +135,8 @@ process report {
       "${rmd}",
       params = list(
         id = "${meta.id}",
-        depths = "${depths}",
         ref_cds = "${params.ref_cds}",
-        cache_dir = "${params.out_dir}/${meta.id}/driver_coverage_cache/",
+        cache_dir = "${params.out_dir}/summary/driver_coverage_cache/",
         drivers = "${params.drivers}",
         rerun = T),
       output_file = "driver_coverage.html",
@@ -180,13 +179,15 @@ workflow {
   sample_bams
   | coverage
   
-  // group by id, concat depths files
+  // group by id, concat depths files, collect all 
   coverage.out.depths 
   | map { meta, depths -> [meta.subMap('id'), depths] }
   | groupTuple
   | concat_depths
+  | collect 
+  | set { collected_depths }
   
   // knit report
-  report(concat_depths.out.depths, "${baseDir}/../reports/driver_coverage.Rmd")
+  report(collected_depths, "${baseDir}/../reports/driver_coverage.Rmd")
   
 }
