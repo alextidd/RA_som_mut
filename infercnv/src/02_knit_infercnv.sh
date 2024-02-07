@@ -10,4 +10,4 @@ cd $wd
 mamba activate jupy
 
 # knit
-Rscript -e "rmarkdown::render('reports/infercnv.Rmd', output_file = 'infercnv.html', output_dir = 'reports/', params = list(rerun = F))"
+Rscript -e "rmarkdown::render('reports/infercnv.Rmd', params = list(infercnv_dir = 'out/Zhang2023/by_celltype/', rerun = F), output_file = 'infercnv.html', output_dir = 'out/Zhang2023/by_celltype/')"

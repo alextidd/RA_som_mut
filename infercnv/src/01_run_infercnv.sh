@@ -34,12 +34,12 @@ mamba activate jupy
   -w work/
 #   -resume
     
-# run test
-/software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-  --out_dir $wd/out/test/ \
-  --mappings <((head -1 $wd/data/Zhang2023/mappings.csv; grep 'BRI-527\|BRI-581' $wd/data/Zhang2023/mappings.csv)| cat) \
-  --annotations $wd/data/Zhang2023/annotations.tsv \
-  --annotation_col 'celltype' \
-  -c config/infercnv.config \
-  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-  -w work/test/
+# # run test
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#   --out_dir $wd/out/test/ \
+#   --mappings <((head -1 $wd/data/Zhang2023/mappings.csv; grep 'BRI-527\|BRI-581' $wd/data/Zhang2023/mappings.csv)| cat) \
+#   --annotations $wd/data/Zhang2023/annotations.tsv \
+#   --annotation_col 'celltype' \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/test/

@@ -49,7 +49,6 @@ process infercnv {
     
   output:
     tuple val(meta), path('out/*')
-    path('${meta.id}/*.png'), emit: pngs
 
   script:
     """
@@ -128,35 +127,6 @@ process infercnv {
       
     # write metadata table
     infercnv::add_to_seurat(infercnv_output_path = 'out/')
-    
-    # save pngs to subdir to collect
-    dir.create('${meta.id}/')
-    list.files('out/', pattern = '.png\$', full.name = T) %>%
-      purrr::map(~ file.copy(.x, '${meta.id}/'))
-    """
-}
-
-// knit infercnv report
-process report {
-  tag "${meta.id}"
-  label 'long16core10gb'
-  
-  publishDir "${params.out_dir}/${meta.id}/", mode: 'copy'
-  
-  input:
-    path(pngs)
-    path(rmd)
-    
-  output:
-    path('infercnv.html')
-    
-  script:
-    """
-    #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
-    rmarkdown::render(
-      '${rmd}', 
-      output_file = 'infercnv.html', 
-      output_dir = getwd())
     """
 }
 

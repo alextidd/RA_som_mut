@@ -5,15 +5,16 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     fig_width: 8
-    keep_md: true
-    code_folding: show
+    keep_md: false
+    code_folding: hide
     toc: true
     toc_float: true
     toc_collapsed: true
     toc_depth: 4
     theme: lumen
 params:
-    rerun: true
+  infercnv_dir: NULL
+  rerun: true
 ---
 
 ```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
@@ -21,6 +22,7 @@ params:
 # rmarkdown::render('reports/infercnv.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = T))
 
 # chunk options
+knitr::opts_knit$set(root.dir = '../')
 knitr::opts_chunk$set(
   warning = FALSE, 
   dpi = 300, 
@@ -40,11 +42,17 @@ inferCNV was run on the scRNA-seq data to call copy number variants in synovial 
 
 ```{r, results = 'asis'}
 pngs <-
-  list.files(pattern = '^BRI', include.dirs = T) %>%
+  list.files(params$infercnv_dir,
+             pattern = '^BRI', 
+             include.dirs = T) %>%
   purrr::set_names() %>%
   purrr::map(function(id) {
+    # collect pngs
     lis <-
-      list.files(id, pattern = '.png', recursive = T, full.names = T) %>%
+      list.files(file.path(params$infercnv_dir, id), 
+                 pattern = '.png', 
+                 recursive = T, 
+                 full.names = T) %>%
       {setNames(., gsub('infercnv.', '', tools::file_path_sans_ext(basename(.))))}
     
     # reorder (final plot first)
