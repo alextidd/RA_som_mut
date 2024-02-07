@@ -42,14 +42,14 @@ process infercnv {
   tag "${meta.id}"
   label "week16core20gb"
 
-  publishDir path: "${params.out_dir}/${meta.id}", mode: 'copy'
+  publishDir path: "${params.out_dir}/${meta.id}", mode: 'copy', pattern: 'out/*'
     
   input:
     tuple val(meta), path(raw_counts_matrix)
     
   output:
-    tuple val(meta), path('*')
-    tuple val(meta), path('*.png'), emit: pngs
+    tuple val(meta), path('out/*')
+    path('${meta.id}/*.png'), emit: pngs
 
   script:
     """
@@ -88,7 +88,7 @@ process infercnv {
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            out_dir = './',
+            out_dir = 'out/',
             num_threads = 8, 
             cluster_by_groups = TRUE,
             analysis_mode = c('subclusters'),
@@ -121,13 +121,18 @@ process infercnv {
       
     # plot smoothed output
     infercnv_obj %>%
-    infercnv::plot_cnv(
-      output_filename = 'infercnv.median_filtered',
-      x.center = 1,
-      color_safe_pal = F)
+      infercnv::plot_cnv(
+        output_filename = 'out/infercnv.median_filtered',
+        x.center = 1,
+        color_safe_pal = F)
       
     # write metadata table
-    infercnv::add_to_seurat(infercnv_output_path = './')
+    infercnv::add_to_seurat(infercnv_output_path = 'out/')
+    
+    # save pngs to subdir to collect
+    dir.create('${meta.id}/')
+    list.files('out/', pattern = '.png\$', full.name = T) %>%
+      purrr::map(~ file.copy(.x, '${meta.id}/'))
     """
 }
 
@@ -135,15 +140,17 @@ process infercnv {
 process report {
   tag "${meta.id}"
   label 'long16core10gb'
+  
   publishDir "${params.out_dir}/${meta.id}/", mode: 'copy'
+  
   input:
-    tuple val(meta), path(pngs, stageAs: "?/*")
+    path(pngs)
     path(rmd)
+    
   output:
     path('infercnv.html')
-    path(rmd)
+    
   script:
-    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
     rmarkdown::render(
@@ -158,10 +165,10 @@ workflow {
 
   // check inputs
   if (params.mappings == null) {
-      error "Please provide a mappings CSV file via --mappings"
+    error "Please provide a mappings CSV file via --mappings"
   }
   if (params.gene_order_file == null) {
-      error "Please provide a gene order file via --gene_order_file"
+    error "Please provide a gene order file via --gene_order_file"
   }
   
   // get metadata + bam paths
@@ -176,14 +183,5 @@ workflow {
   // run infercnv
   mappings 
   | infercnv
-
-  // group all outputs
-  infercnv.out.pngs 
-  | collect 
-  | view 
-  | set { pngs }
-  
-  // knit report
-  report(pngs, "${baseDir}/../reports/infercnv.Rmd")
   
 }
