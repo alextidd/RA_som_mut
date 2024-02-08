@@ -41,9 +41,8 @@ if (params.help) {
 process infercnv {
   tag "${meta.id}"
   label "week16core20gb"
-
-  publishDir path: "${params.out_dir}/${meta.id}", mode: 'copy', pattern: 'out/*'
-    
+  errorStrategy = { task.exitStatus == 130 ? 'retry' : 'ignore' }
+  
   input:
     tuple val(meta), path(raw_counts_matrix)
     
@@ -57,6 +56,10 @@ process infercnv {
     # libraries
     library(magrittr)
     library(Matrix)
+
+    # create output dir
+    out_dir <- '${params.out_dir}/${meta.id}/'
+    dir.create(out_dir)
 
     # generate annotations file
     annotations <- 
@@ -87,7 +90,7 @@ process infercnv {
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            out_dir = 'out/',
+            out_dir = out_dir,
             num_threads = 8, 
             cluster_by_groups = TRUE,
             analysis_mode = c('subclusters'),
@@ -121,12 +124,13 @@ process infercnv {
     # plot smoothed output
     infercnv_obj %>%
       infercnv::plot_cnv(
-        output_filename = 'out/infercnv.median_filtered',
+        output_filename = paste0(out_dir, '/infercnv.median_filtered'),
         x.center = 1,
         color_safe_pal = F)
       
     # write metadata table
-    infercnv::add_to_seurat(infercnv_output_path = 'out/')
+    infercnv::add_to_seurat(
+      infercnv_output_path = 'out_dir')
     """
 }
 
@@ -151,7 +155,7 @@ workflow {
   | set { mappings }
   
   // run infercnv
-  mappings 
-  | infercnv
+  mappings |
+  infercnv
   
 }
