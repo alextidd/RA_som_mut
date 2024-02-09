@@ -5,7 +5,7 @@ params.help             = false
 params.mappings         = null
 params.annotations      = null
 params.gene_order_file  = null
-params.out_dir          = 'out/'
+params.out_dir          = './'
 params.annotation_col   = 'celltype'
 
 // help
@@ -42,6 +42,7 @@ process infercnv {
   tag "${meta.id}"
   label "week16core20gb"
   errorStrategy = { task.exitStatus == 130 ? 'retry' : 'ignore' }
+  publishDir '${params.out_dir}/${meta.id}/', mode: 'copy'
   
   input:
     tuple val(meta), path(raw_counts_matrix)
@@ -56,11 +57,7 @@ process infercnv {
     # libraries
     library(magrittr)
     library(Matrix)
-
-    # create output dir
-    out_dir <- '${params.out_dir}/${meta.id}/'
-    dir.create(out_dir)
-
+    
     # generate annotations file
     annotations <- 
         readr::read_tsv('${params.annotations}') %>%
@@ -90,7 +87,7 @@ process infercnv {
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            out_dir = out_dir,
+            out_dir = 'out/',
             num_threads = 8, 
             cluster_by_groups = TRUE,
             analysis_mode = c('subclusters'),
@@ -107,7 +104,7 @@ process infercnv {
             # turn on to auto-run the HMM prediction of CNV levels
             HMM = TRUE,                       
             HMM_transition_prob = 1e-6,
-            HMM_report_by = c("subcluster"),
+            HMM_report_by = c('subcluster'),
             
             # # https://github.com/harbourlab/UPhyloplot2
             # tumor_subcluster_partition_method = 'random_trees',
@@ -124,13 +121,13 @@ process infercnv {
     # plot smoothed output
     infercnv_obj %>%
       infercnv::plot_cnv(
-        output_filename = paste0(out_dir, '/infercnv.median_filtered'),
+        output_filename = 'out/infercnv.median_filtered',
         x.center = 1,
         color_safe_pal = F)
       
     # write metadata table
     infercnv::add_to_seurat(
-      infercnv_output_path = 'out_dir')
+      infercnv_output_path = 'out/')
     """
 }
 

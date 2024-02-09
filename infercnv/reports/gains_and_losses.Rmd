@@ -134,48 +134,50 @@ plot_gains_and_losses <-
   function(cnvs, annot) {
     cnvs %>%
       dplyr::rename(annotation = tidyselect::all_of(annot)) %>%
-      dplyr::filter(measure == 'has', event != 'cnv') %>%
+      dplyr::filter(measure == 'proportion', event != 'cnv') %>%
       dplyr::group_by(id, chr, event, annotation) %>%
-      dplyr::summarise(n_cells = dplyr::n(),
-                       n_events = sum(value),
-                       prop_of_cells = n_events / n_cells) %>%
-      ggplot(aes(x = id, y = chr, alpha = prop_of_cells, fill = event)) +
+      dplyr::summarise(proportion = mean(value)) %>%
+      ggplot(aes(x = chr, y = id, alpha = proportion, fill = event)) +
       geom_tile() +
       theme_classic() +
-      theme(panel.spacing = unit(0, "lines")) +
+      theme(panel.spacing = unit(0, "lines"),
+            axis.text.y = element_text(size = 3),
+            axis.text.x = element_text(angle = 270, hjust = 0, vjust = 0.5)) +
       scale_fill_manual(values = c('loss' = scales::muted('blue'),
                                    'dupli' = scales::muted('red'))) +
       scale_alpha(range = c(0, 1)) +
-      facet_grid(event ~ annotation)
+      facet_grid(annotation ~ event)
   }
 
+pdf('test.pdf', height = 20)
 plot_gains_and_losses(cnvs, 'cell_type')
 plot_gains_and_losses(cnvs, 'cluster_name')
+dev.off()
 
-# plot celltype
-cnvs %>%
-  dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-  ggplot(aes(x = UMAP1, y = UMAP2, colour = cell_type)) +
-  geom_point(size = 0.1) +
-  theme_classic() +
-  coord_fixed()
+pdf('umaps.pdf', height = 15)
 
-# plot subclusters on umap
-cnvs %>%
-  dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-  ggplot(aes(x = UMAP1, y = UMAP2, colour = subcluster)) +
-  geom_point(size = 0.1) +
-  theme_classic() +
-  coord_fixed()
+list(
+  # plot celltype
+  cnvs %>%
+    dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
+    ggplot(aes(x = UMAP1, y = UMAP2, colour = cell_type)) +
+    geom_point(size = 0.05) +
+    theme_classic() +
+    coord_fixed(),
+  # plot chr7 gain on umap
+  cnvs %>%
+    dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
+    dplyr::arrange(value) %>%
+    ggplot(aes(x = UMAP1, y = UMAP2, colour = value)) +
+    geom_point(size = 0.05) +
+    theme_classic() +
+    scale_colour_viridis_c() +
+    coord_fixed() +
+    ggtitle('proportion of genes duplicated on chr7')
+) %>%
+  patchwork::wrap_plots(ncol = 1)
 
-# plot chr7 gain on umap
-cnvs %>%
-  dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-  ggplot(aes(x = UMAP1, y = UMAP2, colour = value)) +
-  geom_point(size = 0.1) +
-  theme_classic() +
-  scale_colour_viridis() +
-  coord_fixed()
+dev.off()
 ```
 
 #### chr7 gain
