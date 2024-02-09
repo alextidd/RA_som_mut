@@ -44,7 +44,7 @@ knitr::opts_chunk$set(
 
 inferCNV was run on the scRNA-seq data to call copy number variants in synovial cells. No reference group was used, so the average profile of all cells was used in each patient as the baseline. 
 
-First, we load the CITE-seq object. We convert it to a SingleCellExperiment. 
+First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. 
 
 ```{r load_obj, results = 'asis'}
 # dirs
@@ -95,7 +95,11 @@ sce <- xfun::cache_rds({
   sce
 
 }, file = 'sce.rds')
+```
 
+Next, we add the CNV metadata from the inferCNV run to the object.
+
+```{r get_infercnv}
 sce <- xfun::cache_rds({
   
   # get cnv metadata, reorder, left join to colData
@@ -126,55 +130,6 @@ sce <- xfun::cache_rds({
 }, file = 'sce_w_infercnv.rds')
 ```
 
-Next, we add the CNV metadata from the inferCNV run to the UMAP embeddings. We must wrangle it from wide- to long-format.
-
-```{r infercnv_output}
-cnvs <- xfun::cache_rds({
-  
-  # get cnv metadata
-  cnvs <- 
-    list.files(
-      infercnv_dir,
-      pattern = 'map_metadata_from_infercnv.txt',
-      recursive = T) %>%
-    purrr::set_names(., dirname(.)) %>%
-    purrr::map(function(file) {
-      file.path(infercnv_dir, file) %>% 
-        read.table(sep = '\t') %>% 
-        tibble::as_tibble(rownames = 'cell')
-      }) %>%
-    dplyr::bind_rows(.id = 'id') %>%
-    # convert from wide to long format
-    tidyr::pivot_longer(
-      cols = tidyselect::starts_with(c('has_', 'proportion_', 'top_'))
-    ) 
-  
-  # get chr / event / name
-  names <-
-    cnvs %>%
-    dplyr::distinct(name) %>%
-    dplyr::rowwise() %>%
-    dplyr::mutate(
-      chr = gsub('.*_', '', name),
-      event = gsub(paste0('_', chr), '', name) %>% sub('.*_', '', .),
-      measure = sub(paste0('_', event, '_', chr), '', name),
-      chr = dplyr::case_when(
-        measure == 'top' ~ paste0('chr', chr), TRUE ~ chr) %>% 
-        {forcats::fct_reorder(., gsub('chr', '', .) %>% as.numeric())}) %>%
-    dplyr::ungroup() 
-  
-  # combine umap, names, and cnvs
-  cnvs <-
-    cnvs %>%
-    # add names
-    dplyr::left_join(names, by = 'name')
-  
-  # return
-  cnvs 
-  
-}, file = 'cnvs.rds')
-```
-
 The `inferCNV` output file `map_metadata_from_infercnv.txt` contains columns with different CNV measures at whole-chromosome level per cell, with rownames denoting cells. The columns have the following values...
 
 ```{r echo = F, results = 'asis'}
@@ -188,9 +143,67 @@ tibble::tribble(
   knitr::kable()
 ```
 
-Now, we will plot gain and loss events by chromosome
+First, we plot UMAPs by ID and celltype.
+
+```{r plot_umaps, fig.height = 10}
+dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2) +
+  coord_fixed()
+```
+
+```{r plot_umaps_by_id, fig.height = 30}
+dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2, 
+                       split.by = 'sample') +
+  coord_fixed()
+```
+
+Then, we visualise chr7 and chr5 gains.
+
+```{r plot_chr_gains}
+dittoSeq::dittoDimPlot(
+  sce, 'proportion_dupli_chr7', size = 0.2) +
+  coord_fixed()
+dittoSeq::dittoDimPlot(
+  sce, 'proportion_dupli_chr7', size = 0.2, split.by = 'sample') +
+  coord_fixed()
+dittoSeq::dittoDimPlot(
+  sce, 'proportion_dupli_chr5', size = 0.2) +
+  coord_fixed()
+dittoSeq::dittoDimPlot(
+  sce, 'proportion_dupli_chr5', size = 0.2, split.by = 'sample') +
+  coord_fixed()
+```
+
+Now, we will plot gain and loss events by chromosome.
 
 ```{r plot_gains_and_losses, fig.height = 20}
+# mean proportion loss / gain per chromosome per celltype per id
+p_dat <-
+  sce@colData %>%
+  tibble::as_tibble() %>%
+  dplyr::group_by(sample, cell_type) %>%
+  dplyr::summarise(
+    dplyr::across(dplyr::starts_with('proportion_'), ~ mean(.x, na.rm = T))) %>%
+  dplyr::ungroup()
+
+# split gain and loss
+p_dat <-
+  c('dupli', 'loss') %>% 
+  purrr::set_names() %>%
+  purrr::map(function(direction) {
+    list(
+      matrix = 
+        p_dat %>% 
+        dplyr::select(dplyr::contains(paste0('proportion_', direction))) %>%
+        dplyr::filter(!is.na(paste0('proportion_', direction, '_chr1'))) %>%
+        as.matrix(),
+      annot = p_dat %>% dplyr::select(sample, cell_type)
+    )
+  })
+
+# plot heatmaps
+pheatmap::pheatmap(p_dat$dupli$matrix, cluster_cols = F, cluster_rows = F)
+pheatmap::pheatmap(sce@colData[,grepl('proportion_dupli', colnames(sce@colData))])
+
 # function: plot gains and losses
 plot_gains_and_losses <- 
   function(cnvs, annot) {
@@ -240,35 +253,30 @@ list(
 
 #### chr7 gain
 
-We are most interested in the chr7 gain events in fibroblasts. 
-
-We will define cells with chr7 gain as those affecting >90% of genes.
+We are most interested in the chr7 gain events in fibroblasts. We visualise their distribution across the dataset. 
 
 ```{r chr7_prop_dist}
 p_dat <-
-  cnvs %>%
-  dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-  dplyr::group_by(id, cluster_name, cell_type) %>%
-  dplyr::mutate(median_proportion = median(value)) %>%
-  dplyr::ungroup()
-
-p_dat %>%
-  ggplot(aes(x = value)) + 
-  geom_density() +
-  geom_vline(data = p_dat, aes(xintercept = median_proportion)) +
-  ggh4x::facet_nested(~ subcluster + cell_type)
+  sce@colData %>%
+  tibble::as_tibble() %>%
+  dplyr::filter(!is.na(proportion_dupli_chr7)) 
 
 plot_prop_chr7_gain <- function(p_dat, position_arg) {
   p_dat %>%
     ggplot() +
-    geom_bar(aes(x = cell_type, fill = value, group = value),
+    geom_bar(aes(x = cell_type, 
+                 fill = proportion_dupli_chr7, 
+                 group = proportion_dupli_chr7),
              position = position_arg) +
+    scale_x_discrete(guide = guide_axis(angle = -45)) +
     theme_classic() +
     scale_fill_viridis_b(n.breaks = 9) 
 }
 
-plot_prop_chr7_gain(p_dat, position_stack(reverse = T))
-plot_prop_chr7_gain(p_dat, position_fill(reverse = T))
+plot_prop_chr7_gain(p_dat, position_stack(reverse = T)) +
+  ggtitle('chr7 gain count - all cells')
+plot_prop_chr7_gain(p_dat, position_fill(reverse = T)) +
+  ggtitle('chr7 gain proportion - all cells')
 p_dat %>%
   {split(., .$id)} %>%
   purrr::map2(names(.), ., function(id, df) {
@@ -283,14 +291,20 @@ p_dat %>%
 
 We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows [this tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html).
 
-```{r pseudobulk}
+We will define cells with chr7 gain as those affecting >90% of genes.
+
+```{r pseudobulk_chr7_gain}
 pseudobulk <- xfun::cache_rds({
+  
+  # we assign chr7 status as >90% of genes affected by a duplication
+  sce@colData$chr7_gain <-
+    as.numeric(sce@colData$proportion_dupli_chr7 > 0.9)
   
   # pseudobulk the sce object by chr7 status
   reduced_sce <-
-    glmGamPoi::pseudobulk(
+    glmGamPoi::pseudobulk_sce(
       sce, 
-      group_by = vars()
+      group_by = vars(chr7_gain, cell_type)
     )
   
 }, file = 'pseudobulk.rds')
