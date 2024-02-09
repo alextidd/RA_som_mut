@@ -42,13 +42,17 @@ process infercnv {
   tag "${meta.id}"
   label "week16core20gb"
   errorStrategy = { task.exitStatus == 130 ? 'retry' : 'ignore' }
-  publishDir '${params.out_dir}/${meta.id}/', mode: 'copy'
+  publishDir(
+    path: "${params.out_dir}/${meta.id}", 
+    mode: 'copy',
+    saveAs: { fn -> fn.substring(fn.lastIndexOf('/')+1) }
+  ) 
   
   input:
     tuple val(meta), path(raw_counts_matrix)
     
   output:
-    tuple val(meta), path('out/*')
+    tuple val(meta), path("out/*")
 
   script:
     """

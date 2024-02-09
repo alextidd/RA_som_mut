@@ -13,40 +13,40 @@ mkdir -p work/ out/ log/
 mamba activate jupy
 
 # run infercnv on celltypes
-/nextflow-23.04.1-all run nextflow/infercnv.nf \
+/software/team205//nextflow-23.04.1-all run nextflow/infercnv.nf \
   --out_dir $wd/out/Zhang2023/by_celltype/ \
   --mappings $wd/data/Zhang2023/mappings.csv \
   --annotations $wd/data/Zhang2023/annotations.tsv \
   --annotation_col 'celltype' \
   -c config/infercnv.config \
   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-  -w work/ \
-  -resume
+  -w work/ #\
+  #-resume
     
-# run infercnv on clusters
-/software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-  --out_dir $wd/out/Zhang2023/by_cluster/ \
-  --mappings $wd/data/Zhang2023/mappings.csv \
-  --annotations $wd/data/Zhang2023/annotations.tsv \
-  --annotation_col 'cluster' \
-  -c config/infercnv.config \
-  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-  -w work/ \
-  -resume
-
-# run infercnv on stromal clusters
-cat $wd/data/Zhang2023/annotations.tsv |
-awk -F'\t' '{if ((NR == 1) || ($2 == "Stromal cell")) {print} }' \
-> $wd/data/Zhang2023/stromal_annotations.tsv
-/software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-  --out_dir $wd/out/Zhang2023/by_stromal_cluster/ \
-  --mappings $wd/data/Zhang2023/mappings.csv \
-  --annotations $wd/data/Zhang2023/stromal_annotations.tsv \
-  --annotation_col 'cluster' \
-  -c config/infercnv.config \
-  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-  -w work/ \
-  -resume
+# # run infercnv on clusters
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#   --out_dir $wd/out/Zhang2023/by_cluster/ \
+#   --mappings $wd/data/Zhang2023/mappings.csv \
+#   --annotations $wd/data/Zhang2023/annotations.tsv \
+#   --annotation_col 'cluster' \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
+# 
+# # run infercnv on stromal clusters
+# cat $wd/data/Zhang2023/annotations.tsv |
+# awk -F'\t' '{if ((NR == 1) || ($2 == "Stromal cell")) {print} }' \
+# > $wd/data/Zhang2023/stromal_annotations.tsv
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#   --out_dir $wd/out/Zhang2023/by_stromal_cluster/ \
+#   --mappings $wd/data/Zhang2023/mappings.csv \
+#   --annotations $wd/data/Zhang2023/stromal_annotations.tsv \
+#   --annotation_col 'cluster' \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
 
 # # run test
 # /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
