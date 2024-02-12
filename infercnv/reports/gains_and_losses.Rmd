@@ -29,6 +29,7 @@ library(gridExtra)
 library(Matrix)
 library(SummarizedExperiment)
 library(SingleCellExperiment)
+library(glmGamPoi)
 
 # dev.off() if there is a device
 dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
@@ -117,7 +118,7 @@ sce <- xfun::cache_rds({
   # return
   sce
 
-}, file = 'sce.rds')
+}, file = 'sce.rds', rerun = params$rerun)
 ```
 
 The `inferCNV` output file `map_metadata_from_infercnv.txt` contains columns with different CNV measures at whole-chromosome level per cell, with rownames denoting cells. The columns have the following values...
@@ -140,63 +141,75 @@ dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2) +
   coord_fixed()
 ```
 
-```{r plot_umaps_by_id, fig.height = 30}
-dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2, 
-                       split.by = 'sample') +
-  coord_fixed()
-```
-
-Then, we visualise chr7 and chr5 gains.
+Then, we visualise chr7 gains on the UMAP.
 
 ```{r plot_chr_gains}
 dittoSeq::dittoDimPlot(
-  sce, 'proportion_dupli_chr7', size = 0.2) +
-  coord_fixed()
-dittoSeq::dittoDimPlot(
-  sce, 'proportion_dupli_chr7', size = 0.2, split.by = 'sample') +
-  coord_fixed()
-dittoSeq::dittoDimPlot(
-  sce, 'proportion_dupli_chr5', size = 0.2) +
-  coord_fixed()
-dittoSeq::dittoDimPlot(
-  sce, 'proportion_dupli_chr5', size = 0.2, split.by = 'sample') +
+  sce, 'proportion_dupli_chr7', size = 0.1) +
   coord_fixed()
 ```
 
 Now, we will plot gain and loss events by chromosome.
 
-```{r plot_gains_and_losses, fig.height = 20}
+First, we plot single cell-level CNVs by direction and by celltype.
+
+```{r plot_gains_and_losses_by_ct, fig.height = 20, eval = F}
+# at single-cell level
+unique(sce$cell_type) %>%
+  purrr::walk(function(ct) {
+    c('dupli', 'loss') %>%
+      purrr::walk(function(direction) {
+        p_dat <-
+          sce@colData[!is.na(sce$proportion_cnv_chr1) & sce$cell_type == ct, ]
+        p_mat <-
+          p_dat[, grepl(paste0('proportion_', direction), colnames(p_dat))]
+        p_annot <- 
+          p_dat[, c('sample'), drop = F] %>%
+          as.data.frame()
+        p <-
+          pheatmap::pheatmap(
+            p_mat, 
+            show_rownames = F, 
+            annotation_row = p_annot,
+            # hclust error: size cannot be NA nor exceed 65536
+            cluster_rows = ifelse(nrow(p_mat) > 65536, F, T),
+            legend = F,
+            main = paste0('celltype: ', ct, '\ndirection: ', direction))
+        print(p)
+      })
+  })
+```
+
+We also plot sample-x-celltype level events (mean-summarised). 
+
+```{r plot_gains_and_losses_by_id}
 # mean proportion loss / gain per chromosome per celltype per id
 p_dat <-
   sce@colData %>%
   tibble::as_tibble() %>%
   dplyr::group_by(sample, cell_type) %>%
+  dplyr::filter(!is.na(proportion_cnv_chr1)) %>%
   dplyr::summarise(
     dplyr::across(dplyr::starts_with('proportion_'), ~ mean(.x, na.rm = T))) %>%
-  dplyr::ungroup()
+  dplyr::ungroup() %>%
+  dplyr::mutate(sample_x_ct = paste0(sample, '_', cell_type)) %>%
+  tibble::column_to_rownames('sample_x_ct') 
 
 # split gain and loss
 p_dat <-
   c('dupli', 'loss') %>% 
-  purrr::set_names() %>%
   purrr::map(function(direction) {
-    p_dat_i <-
-      p_dat %>% 
-        dplyr::filter(!is.na(paste0('proportion_', direction, '_chr1')))
-    list(
-      matrix = 
-        p_dat_i %>%
-        dplyr::select(dplyr::contains(paste0('proportion_', direction))) %>%
-        as.matrix(),
-      annot = 
-        p_dat_i %>% 
-        dplyr::select(sample, cell_type)
-    )
+    p_mat <-
+      p_dat[, grepl(paste0('proportion_', direction), colnames(p_dat))]
+    p_annot <- 
+      p_dat[, c('sample', 'cell_type')] %>%
+      as.data.frame()
+    pheatmap::pheatmap(
+      p_mat, 
+      show_rownames = F, 
+      annotation_row = p_annot,
+      main = paste0('direction: ', direction))
   })
-
-# plot heatmaps
-pheatmap::pheatmap(p_dat$dupli$matrix, cluster_cols = F, cluster_rows = F)
-pheatmap::pheatmap(sce@colData[,grepl('proportion_dupli', colnames(sce@colData))])
 ```
 
 #### chr7 gain
@@ -204,40 +217,55 @@ pheatmap::pheatmap(sce@colData[,grepl('proportion_dupli', colnames(sce@colData))
 We are most interested in the chr7 gain events in fibroblasts. We visualise their distribution across the dataset. 
 
 ```{r chr7_prop_dist}
+# prep data
 p_dat <-
   sce@colData %>%
   tibble::as_tibble() %>%
-  dplyr::filter(!is.na(proportion_dupli_chr7)) 
+  dplyr::filter(!is.na(proportion_dupli_chr7)) %>%
+  dplyr::group_by(sample) %>%
+  dplyr::mutate(n_cells = dplyr::n())
 
-plot_prop_chr7_gain <- function(p_dat, position_arg) {
-  p_dat %>%
-    ggplot() +
-    geom_bar(aes(x = cell_type, 
-                 fill = proportion_dupli_chr7, 
-                 group = proportion_dupli_chr7),
-             position = position_arg) +
-    scale_x_discrete(guide = guide_axis(angle = -45)) +
-    theme_classic() +
-    scale_fill_viridis_b(n.breaks = 9) 
+# define functions
+plot_prop_chr7_gain <- function(p_dat, title) {
+  plot_func <- function(p_dat, position_arg) {
+    p_dat %>%
+      ggplot() +
+      geom_bar(aes(x = cell_type, 
+                   fill = proportion_dupli_chr7, 
+                   group = proportion_dupli_chr7),
+               position = position_arg) +
+      scale_x_discrete(guide = guide_axis(angle = -45)) +
+      theme_classic() +
+      scale_fill_viridis_b(n.breaks = 9, limits = c(0, 1)) 
+  }
+  
+  # plot both count (stack) and proportion (fill), annotate n cells
+  list(
+    plot_func(p_dat, position_fill(reverse = T)) +
+      ggtitle(title) +
+      theme(axis.text.x = element_blank(),
+            axis.title.x = element_blank()) +
+      ylab('count'),
+    plot_func(p_dat, position_stack(reverse = T)) +
+      ylab('proportion')) %>%
+    patchwork::wrap_plots(ncol = 1) 
 }
 
-plot_prop_chr7_gain(p_dat, position_stack(reverse = T)) +
-  ggtitle('chr7 gain count - all cells')
-plot_prop_chr7_gain(p_dat, position_fill(reverse = T)) +
-  ggtitle('chr7 gain proportion - all cells')
+# plot, across all and by patient
+plot_prop_chr7_gain(p_dat, 'chr7 gain - all cells')
 p_dat %>%
-  {split(., .$id)} %>%
-  purrr::map2(names(.), ., function(id, df) {
-    plot_prop_chr7_gain(df, position_fill(reverse = T)) +
-      ggtitle(paste0('chr7 gain count - ', id))
-    plot_prop_chr7_gain(df, position_stack(reverse = T)) +
-      ggtitle(paste0('chr7 gain proportion - ', id))
+  {split(., .$sample)} %>%
+  purrr::walk2(names(.), ., function(id, df) {
+    df %>%
+    plot_prop_chr7_gain(
+      paste0('chr7 gains - ', id, ' (', unique(df$n_cells), ' cells)')) %>%
+      print()
   })
 ```
 
 ##### Pseudobulk
 
-We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows [this tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html).
+We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows a [tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html) and the [glmGamPoi GitHub](https://github.com/const-ae/glmGamPoi).
 
 We will define cells with chr7 gain as those affecting >90% of genes. We will pseudobulk by patient, celltype, and chr7 ploidy to produce a reduced object.
 
@@ -248,46 +276,111 @@ reduced_sce <- xfun::cache_rds({
   sce@colData$chr7_gain <-
     as.numeric(sce@colData$proportion_dupli_chr7 > 0.9)
   
-  # pseudobulk the sce object by patient, celltype, and chr7 ploidy
+  # pseudobulk the sce object by patient and chr7 ploidy
+  # subset to stromal cells
   reduced_sce <-
-    glmGamPoi::pseudobulk_sce(
-      sce, 
-      group_by = vars(sample, cell_type, chr7_gain),
-      n_cells = n()
+    glmGamPoi::pseudobulk(
+      sce[, sce$cell_type == 'Stromal cell'], 
+      group_by = vars(sample, chr7_gain)
     )
   
-  # remove NAs
-  reduced_sce <- reduced_sce[, !is.na(reduced_sce$cell_type)]
+  # remove NA's
+  reduced_sce <-
+    reduced_sce[, !is.na(reduced_sce$sample) & !is.na(reduced_sce$chr7_gain)]
   
   # return
   reduced_sce
   
-}, file = 'reduced_sce.rds')
+}, file = 'reduced_sce.rds', rerun = params$rerun)
 ```
 
 With the reduced data, we can conduct differential expression analysis, treating the data like bulk RNA-seq data. 
 
+We will identify which genes in stromal cells are changed most by chr7 gain. We do this by fitting one GLM model for each gene, with the chr7 status and the patient as factors.
+
 ```{r deseq, message = T}
-# use DESeq2's size factor calculation procedure
-fit <-
+# fit one GLM model for each gene
+fit <- xfun::cache_rds({
+  fit <-
   glmGamPoi::glm_gp(
     reduced_sce,
-    design = ~ chr7_gain * cell_type + sample,
-    size_factor = 'ratio',
+    design = ~ chr7_gain + sample,
     verbose = T
   )
-res <-
+  fit
+}, file = 'fit.rds', rerun = params$rerun)
+
+# show model output
+summary(fit)
+```
+
+Next, we test for differential gene expression.
+
+```{r test_ge}
+# get differential expression
+de_res <-
   glmGamPoi::test_de(
     fit, 
     contrast = 
-      cond(cell_type = 'Stromal cell', chr7_gain = 1) -
-      cond(cell_type = 'Stromal cell', chr7_gain = 0)
+      cond(chr7_gain = 1) -
+      cond(chr7_gain = 0)
   )
 ```
 
 ```{r plot_de}
-res %>%
-  ggplot(aes(x = lfc, y = log10(pval))) +
-  geom_point(aes(colour = adj_pval < 0.01), size = 0.5) +
-  t
+# minimum accepted adj_pval
+min_p <- 0.05
+
+# define up/downregulation
+de_res <-
+  de_res %>% 
+  tibble::as_tibble() %>%
+  dplyr::mutate(
+    direction = dplyr::case_when(
+      lfc < -1.5 & adj_pval < min_p ~ 'downregulated',
+      lfc > 1.5 & adj_pval < min_p ~ 'upregulated',
+      TRUE ~ NA
+    )
+  )
+
+# plot
+de_res %>%
+  ggplot(aes(x = lfc, y = -log10(adj_pval), colour = direction)) +
+  geom_point(size = 0.5) +
+  geom_hline(yintercept = -log10(min_p), linetype = 'dashed') +
+  geom_vline(xintercept = c(-1.5, 1.5), linetype = 'dashed') +
+  ggrepel::geom_text_repel(
+    data = 
+      de_res %>% 
+      dplyr::filter(!is.na(direction)) %>%
+      dplyr::group_by(direction) %>%
+      dplyr::filter(rank(adj_pval) <= 10 | rank(lfc, ties.method = 'min') <= 10),
+    aes(label = name),
+    min.segment.length = 0, nudge_x = 0.5) +
+  theme_classic() +
+  scale_colour_manual(values = c('upregulated' = 'darkred',
+                                 'downregulated' = 'darkblue'), 
+                      na.value = 'darkgrey')
+```
+
+These are the most strongly downregulated genes:
+
+```{r get_downreg_degs}
+de_res %>%
+  tibble::as_tibble() %>% 
+  dplyr::filter(adj_pval < 0.01) %>%
+  dplyr::arrange(-lfc, adj_pval) %>%
+  head(10) %>%
+  knitr::kable()
+```
+
+These are the most strongly upregulated genes:
+
+```{r get_upreg_degs}
+de_res %>%
+  tibble::as_tibble() %>% 
+  dplyr::filter(adj_pval < 0.01) %>%
+  dplyr::arrange(lfc, adj_pval) %>%
+  head(10) %>%
+  knitr::kable()
 ```
