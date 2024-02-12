@@ -1,5 +1,5 @@
 #!/bin/bash
-# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/ ; . ~/.bashrc ; mamba activate jupy ; /software/team205/bin/jsub lsf -q week -n knit_gains_and_losses -c 1 -m 20g -l log "bash src/03_knit_gains_and_losses.sh" | bsub
+# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/ ; . ~/.bashrc ; mamba activate jupy ; /software/team205/bin/jsub lsf -q week -n knit_gains_and_losses -c 1 -m 50g -l log "bash src/03_knit_gains_and_losses.sh" | bsub
 
 # wd
 wd=/lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/

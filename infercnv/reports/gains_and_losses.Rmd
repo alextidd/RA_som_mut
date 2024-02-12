@@ -44,7 +44,7 @@ knitr::opts_chunk$set(
 
 inferCNV was run on the scRNA-seq data to call copy number variants in synovial cells. No reference group was used, so the average profile of all cells was used in each patient as the baseline. 
 
-First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. 
+First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. Next, we add the CNV metadata from the inferCNV run to the object.
 
 ```{r load_obj, results = 'asis'}
 # dirs
@@ -75,14 +75,14 @@ sce <- xfun::cache_rds({
                   cell_order]
   
   # generate coldata
-  colData <-
+  col_data <-
     obj$meta_data[cell_order, ]
   
   # populate sce
   sce <- 
     SingleCellExperiment::SingleCellExperiment(
       assays = assays,
-      colData = colData
+      colData = col_data
     )
   
   # name, reorder, and add umap embeddings
@@ -91,18 +91,7 @@ sce <- xfun::cache_rds({
   umap <- umap[cell_order, ]
   reducedDim(sce, 'UMAP_uwot') <- umap
   
-  # return
-  sce
-
-}, file = 'sce.rds')
-```
-
-Next, we add the CNV metadata from the inferCNV run to the object.
-
-```{r get_infercnv}
-sce <- xfun::cache_rds({
-  
-  # get cnv metadata, reorder, left join to colData
+  # get cnv metadata
   cnvs <- 
     list.files(
       infercnv_dir,
@@ -116,18 +105,19 @@ sce <- xfun::cache_rds({
     dplyr::bind_rows() 
   
   # left join cnvs to coldata, reorder, restore rownames
-  colData <- merge(colData, cnvs, by = 'row.names', all.x = T)
-  rownames(colData) <- colData[, 1]
-  colData <- colData[, -1]
-  colData <- colData[colnames(sce), ]
+  col_data <- merge(col_data, cnvs, by = 'row.names', all.x = T)
+  rownames(col_data) <- col_data[, 1]
+  col_data <- 
+    col_data[colnames(sce), -1] %>%
+    DataFrame()
   
   # add to sce
-  sce@colData <- colData
+  sce@colData <- col_data
   
   # return
   sce
-  
-}, file = 'sce_w_infercnv.rds')
+
+}, file = 'sce.rds')
 ```
 
 The `inferCNV` output file `map_metadata_from_infercnv.txt` contains columns with different CNV measures at whole-chromosome level per cell, with rownames denoting cells. The columns have the following values...
@@ -190,65 +180,23 @@ p_dat <-
   c('dupli', 'loss') %>% 
   purrr::set_names() %>%
   purrr::map(function(direction) {
+    p_dat_i <-
+      p_dat %>% 
+        dplyr::filter(!is.na(paste0('proportion_', direction, '_chr1')))
     list(
       matrix = 
-        p_dat %>% 
+        p_dat_i %>%
         dplyr::select(dplyr::contains(paste0('proportion_', direction))) %>%
-        dplyr::filter(!is.na(paste0('proportion_', direction, '_chr1'))) %>%
         as.matrix(),
-      annot = p_dat %>% dplyr::select(sample, cell_type)
+      annot = 
+        p_dat_i %>% 
+        dplyr::select(sample, cell_type)
     )
   })
 
 # plot heatmaps
 pheatmap::pheatmap(p_dat$dupli$matrix, cluster_cols = F, cluster_rows = F)
 pheatmap::pheatmap(sce@colData[,grepl('proportion_dupli', colnames(sce@colData))])
-
-# function: plot gains and losses
-plot_gains_and_losses <- 
-  function(cnvs, annot) {
-    cnvs %>%
-      dplyr::rename(annotation = tidyselect::all_of(annot)) %>%
-      dplyr::filter(measure == 'proportion', event != 'cnv') %>%
-      dplyr::group_by(id, chr, event, annotation) %>%
-      dplyr::summarise(proportion = mean(value)) %>%
-      ggplot(aes(x = chr, y = id, alpha = proportion, fill = event)) +
-      geom_tile() +
-      theme_classic() +
-      theme(panel.spacing = unit(0, "lines"),
-            axis.text.y = element_text(size = 3),
-            axis.text.x = element_text(angle = 270, hjust = 0, vjust = 0.5)) +
-      scale_fill_manual(values = c('loss' = scales::muted('blue'),
-                                   'dupli' = scales::muted('red'))) +
-      scale_alpha(range = c(0, 1)) +
-      facet_grid(annotation ~ event)
-  }
-
-plot_gains_and_losses(cnvs, 'cell_type')
-plot_gains_and_losses(cnvs, 'cluster_name')
-```
-
-```{r plot_umaps, fig.height = 15}
-list(
-  # plot celltype
-  cnvs %>%
-    dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-    ggplot(aes(x = UMAP1, y = UMAP2, colour = cell_type)) +
-    geom_point(size = 0.05) +
-    theme_classic() +
-    coord_fixed(),
-  # plot chr7 gain on umap
-  cnvs %>%
-    dplyr::filter(measure == 'proportion', event == 'dupli', chr == 'chr7') %>%
-    dplyr::arrange(value) %>%
-    ggplot(aes(x = UMAP1, y = UMAP2, colour = value)) +
-    geom_point(size = 0.05) +
-    theme_classic() +
-    scale_colour_viridis_c() +
-    coord_fixed() +
-    ggtitle('proportion of genes duplicated on chr7')
-) %>%
-  patchwork::wrap_plots(ncol = 1)
 ```
 
 #### chr7 gain
@@ -291,21 +239,55 @@ p_dat %>%
 
 We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows [this tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html).
 
-We will define cells with chr7 gain as those affecting >90% of genes.
+We will define cells with chr7 gain as those affecting >90% of genes. We will pseudobulk by patient, celltype, and chr7 ploidy to produce a reduced object.
 
 ```{r pseudobulk_chr7_gain}
-pseudobulk <- xfun::cache_rds({
+reduced_sce <- xfun::cache_rds({
   
   # we assign chr7 status as >90% of genes affected by a duplication
   sce@colData$chr7_gain <-
     as.numeric(sce@colData$proportion_dupli_chr7 > 0.9)
   
-  # pseudobulk the sce object by chr7 status
+  # pseudobulk the sce object by patient, celltype, and chr7 ploidy
   reduced_sce <-
     glmGamPoi::pseudobulk_sce(
       sce, 
-      group_by = vars(chr7_gain, cell_type)
+      group_by = vars(sample, cell_type, chr7_gain),
+      n_cells = n()
     )
   
-}, file = 'pseudobulk.rds')
+  # remove NAs
+  reduced_sce <- reduced_sce[, !is.na(reduced_sce$cell_type)]
+  
+  # return
+  reduced_sce
+  
+}, file = 'reduced_sce.rds')
+```
+
+With the reduced data, we can conduct differential expression analysis, treating the data like bulk RNA-seq data. 
+
+```{r deseq, message = T}
+# use DESeq2's size factor calculation procedure
+fit <-
+  glmGamPoi::glm_gp(
+    reduced_sce,
+    design = ~ chr7_gain * cell_type + sample,
+    size_factor = 'ratio',
+    verbose = T
+  )
+res <-
+  glmGamPoi::test_de(
+    fit, 
+    contrast = 
+      cond(cell_type = 'Stromal cell', chr7_gain = 1) -
+      cond(cell_type = 'Stromal cell', chr7_gain = 0)
+  )
+```
+
+```{r plot_de}
+res %>%
+  ggplot(aes(x = lfc, y = log10(pval))) +
+  geom_point(aes(colour = adj_pval < 0.01), size = 0.5) +
+  t
 ```
