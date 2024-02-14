@@ -5,7 +5,7 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     fig_width: 8
-    keep_md: false
+    keep_md: true
     code_folding: hide
     toc: true
     toc_float: true
@@ -43,16 +43,15 @@ knitr::opts_chunk$set(
   cache.path = params$cache_dir) 
 ```
 
-# Pre-processing
+# Loading the inferCNV outputs
 
 inferCNV was run on the scRNA-seq data to call copy number variants in synovial cells. No reference group was used, so the average profile of all cells was used in each patient as the baseline. 
 
-First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. Next, we add the CNV metadata from the inferCNV run to the object.
+First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. Then we add the CNV metadata from the inferCNV run to the object.
 
 ```{r load_obj, results = 'asis'}
 # dirs
 data_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/processed_output/'
-infercnv_dir <- params$infercnv_dir
 
 # load gene coords
 coords <-
@@ -60,6 +59,14 @@ coords <-
 
 # convert obj to sce
 sce <- xfun::cache_rds({
+  
+  # load CTAP and metadata
+  ctap <-
+    readr::read_tsv('data/Zhang2023/CTAP_donor_mapping.tsv') %>%
+    dplyr::select(sample = donor, CTAP)
+  md <- 
+    readr::read_tsv('data/Zhang2023/SYNAPSE_METADATA_MANIFEST.tsv') %>%
+    dplyr::distinct()
   
   # load object
   obj <- 
@@ -101,18 +108,19 @@ sce <- xfun::cache_rds({
   # get cnv metadata
   cnvs <- 
     list.files(
-      infercnv_dir,
+      params$infercnv_dir,
       pattern = 'map_metadata_from_infercnv.txt',
       recursive = T) %>%
     purrr::set_names(., dirname(.)) %>%
     purrr::map(function(file) {
-      file.path(infercnv_dir, file) %>% 
+      file.path(params$infercnv_dir, file) %>% 
         read.table(sep = '\t')
       }) %>%
-    dplyr::bind_rows() 
+    dplyr::bind_rows() %>%
+    dplyr::mutate(infercnv = T)
   
   # left join cnvs to coldata, reorder, restore rownames
-  col_data <- merge(col_data, cnvs, by = 'row.names', all.x = T)
+  col_data <- merge(col_data, cnvs, by = 'row.names', all.x = T, sort = F)
   rownames(col_data) <- col_data[, 1]
   col_data <- 
     col_data[colnames(sce), -1] %>%
@@ -125,7 +133,12 @@ sce <- xfun::cache_rds({
   sce
 
 }, file = 'sce.rds', rerun = params$rerun)
+
+ # remove NA's for inferCNV analysis
+ sce <- sce[, !is.na(sce$proportion_cnv_chr1)]
 ```
+
+## `map_metadata_from_infercnv.txt`
 
 The `inferCNV` output file `map_metadata_from_infercnv.txt` contains columns with different CNV measures at whole-chromosome level per cell, with rownames denoting cells. The columns have the following values...
 
@@ -140,47 +153,111 @@ tibble::tribble(
   knitr::kable()
 ```
 
-First, we plot UMAPs by ID and celltype.
+## HMM regional predictions
+
+We also load the CNV regions prediced by HMM. According to [their wiki](https://github.com/broadinstitute/infercnv/wiki/infercnv-i6-HMM-type#infercnv-i6-hmm)...
+
+As well as aneuploidy, we want to look for smaller recurrent structural changes, including focal-/arm-level events. 
+
+> The inferCNV i6 HMM is a six-state CNV model that predicts the following CNV levels:
+>
+> * State 1: 0x: complete loss
+> * State 2: 0.5x: loss of one copy
+> * State 3: 1x: neutral
+> * State 4: 1.5x: addition of one copy
+> * State 5: 2x: addition of two copies
+> * State 6: 3x: essentially a placeholder for >2x copies but modeled as 3x.
+
+```{r get_hmm}
+cnv_regions <- xfun::cache_rds({
+  cnv_regions <- 
+    list.files(
+      params$infercnv_dir,
+      pattern = 'HMM_CNV_predictions.HMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.pred_cnv_regions.dat',
+      recursive = T) %>%
+    purrr::set_names(., dirname(.)) %>%
+    purrr::map(function(file) {
+      file.path(params$infercnv_dir, file) %>% 
+        readr::read_tsv()
+      }) %>%
+    dplyr::bind_rows(.id = 'sample') %>%
+    # refactor chromosomes
+    dplyr::mutate(
+      chr = chr %>% {forcats::fct_reorder(., gsub('chr', '', .) %>% as.numeric())},
+      direction = dplyr::case_when(
+        state < 3 ~ 'loss',
+        state > 3 ~ 'dupli',
+        TRUE ~ 'neutral'),
+      region = gsub('.*region_', '', cnv_name) %>% as.numeric())
+}, file = 'cnv_regions', rerun = params$rerun)
+```
+
+```{r plot_cnv_regions_pred}
+pdf('test.pdf', height = 25)
+cnv_regions %>%
+  dplyr::filter(direction != 'neutral') %>% 
+  ggplot(aes(x = region)) +
+  geom_bar(position = 'stack') +
+  facet_wrap(~ chr, ncol = 1, scales = 'free') +
+  theme_classic() +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  theme(legend.position = 'none')
+dev.off()
+```
+
+## UMAPs
+
+First, we plot UMAPs by celltype.
 
 ```{r plot_umaps}
 dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2) +
   coord_fixed()
 ```
 
-Then, we visualise chr7 gains on the UMAP.
+Then, we visualise gains and loss proportions for each chromosome on the UMAP.
 
-```{r plot_chr_gains}
-dittoSeq::dittoDimPlot(
-  sce, 'proportion_dupli_chr7', size = 0.1) +
-  coord_fixed()
+```{r plot_chr_gains, fig.width = 10, fig.height = 5}
+pdf('test.pdf')
+paste0('chr', 1:22) %>% head(2) %>%
+  purrr::map(function(chr) {
+    sce %>%
+      Nebulosa::plot_density(
+        paste('proportion', c('dupli', 'loss'), chr, sep = '_'),
+        size = 0.5) 
+  })
 ```
 
-Now, we will plot gain and loss events by chromosome.
+## Heatmaps
+
+Now, we will plot gain and loss proportions by chromosome.
 
 First, we plot single cell-level CNVs by direction and by celltype.
 
 ```{r plot_gains_and_losses_by_ct}
 # at single-cell level
-unique(sce$cell_type) %>%
+sce$cell_type[!is.na(sce$infercnv)] %>%
+  unique() %>%
   purrr::map(function(ct) {
     c('dupli', 'loss') %>%
       purrr::map(function(direction) {
         p_dat <-
           sce@colData[!is.na(sce$proportion_cnv_chr1) & sce$cell_type == ct, ]
-        p_mat <-
-          p_dat[, grepl(paste0('proportion_', direction), colnames(p_dat))]
-        p_annot <- 
-          p_dat[, c('sample'), drop = F] %>%
-          as.data.frame()
-        pheatmap::pheatmap(
-          p_mat, 
-          show_rownames = F, 
-          annotation_row = p_annot,
-          # hclust error: size cannot be NA nor exceed 65536
-          cluster_rows = ifelse(nrow(p_mat) > 65536, F, T),
-          legend = F,
-          main = paste0('celltype: ', ct, '\ndirection: ', direction)) %>%
-          print()
+        if (nrow(p_dat) > 0) {
+          p_mat <-
+            p_dat[, grepl(paste0('proportion_', direction), colnames(p_dat))]
+          p_annot <- 
+            p_dat[, c('sample'), drop = F] %>%
+            as.data.frame()
+          pheatmap::pheatmap(
+            p_mat, 
+            show_rownames = F, 
+            annotation_row = p_annot,
+            # hclust error: size cannot be NA nor exceed 65536
+            cluster_rows = ifelse(nrow(p_mat) > 65536, F, T),
+            legend = F,
+            main = paste0('celltype: ', ct, '\ndirection: ', direction)) %>%
+            print()
+        }
       })
   })
 ```
@@ -218,7 +295,7 @@ p_dat <-
   })
 ```
 
-# chr7 gain
+## chr7 gain
 
 We are most interested in the chr7 gain events in fibroblasts. We visualise their distribution across the dataset. 
 
@@ -289,13 +366,11 @@ reduced_sce <- xfun::cache_rds({
   # subset to stromal cells
   reduced_sce <-
     glmGamPoi::pseudobulk(
-      sce[, sce$cell_type == 'Stromal cell' & !is.na(sce$chr7_gain)], 
-      group_by = vars(sample, chr7_gain)
+      sce[, !is.na(sce$sample) & 
+            !is.na(sce$chr7_gain) &
+            !is.na(sce$cell_type)], 
+      group_by = vars(sample, cell_type, chr7_gain)
     )
-  
-  # remove NA's
-  reduced_sce <-
-    reduced_sce[, !is.na(reduced_sce$sample) & !is.na(reduced_sce$chr7_gain)]
   
   # return
   reduced_sce
@@ -313,7 +388,7 @@ fit <- xfun::cache_rds({
   fit <-
   glmGamPoi::glm_gp(
     reduced_sce,
-    design = ~ chr7_gain + sample,
+    design = ~ chr7_gain + sample + cell_type,
     verbose = T
   )
   fit
@@ -337,8 +412,8 @@ de_res <- xfun::cache_rds({
     glmGamPoi::test_de(
       fit, 
       contrast = 
-        cond(chr7_gain = 1) -
-        cond(chr7_gain = 0)
+        cond(chr7_gain = 1, cell_type = 'Stromal cells') -
+        cond(chr7_gain = 0, cell_type = 'Stromal cells')
     )
   
   # define significant up/downregulation and position
