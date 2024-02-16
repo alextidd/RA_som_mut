@@ -188,21 +188,40 @@ cnv_regions <- xfun::cache_rds({
         state < 3 ~ 'loss',
         state > 3 ~ 'dupli',
         TRUE ~ 'neutral'),
-      region = gsub('.*region_', '', cnv_name) %>% as.numeric())
+      ploidy = dplyr::case_when(
+        state == 1 ~ '0x',
+        state == 2 ~ '0.5x',
+        state == 3 ~ '1x',
+        state == 4 ~ '1.5x',
+        state == 5 ~ '2x',
+        state == 6 ~ '>2x',
+        TRUE ~ NA
+        ) %>% forcats::fct_reorder(state),
+      region = gsub('.*region_', '', cnv_name) %>% as.numeric(),
+      cell_type = cell_group_name %>% gsub('\\..*', '', .))
+  cnv_regions$midpoint <-
+    (cnv_regions$start + cnv_regions$end) / 2
+  cnv_regions
 }, file = 'cnv_regions', rerun = params$rerun)
 ```
 
-```{r plot_cnv_regions_pred}
-pdf('test.pdf', height = 25)
-cnv_regions %>%
-  dplyr::filter(direction != 'neutral') %>% 
-  ggplot(aes(x = region)) +
-  geom_bar(position = 'stack') +
-  facet_wrap(~ chr, ncol = 1, scales = 'free') +
-  theme_classic() +
-  scale_x_discrete(guide = guide_axis(angle = 90)) +
-  theme(legend.position = 'none')
-dev.off()
+```{r plot_cnv_regions_pred, fig.height = 20, fig.width = 10}
+p_dat %>%
+  ggplot(aes(x = pos, fill = ploidy, group = ploidy)) +
+  geom_density(data = p_dat %>% dplyr::filter(direction == 'dupli'),
+               aes(y = ..density..), 
+               position = position_stack(), 
+               colour = NA) +
+  geom_density(data = p_dat %>% dplyr::filter(direction == 'loss'),
+               aes(y = -..density..), 
+               position = position_stack(reverse = T), 
+               colour = NA) +
+  ggh4x::facet_grid2(chr ~ cell_type, scales = 'free', independent = 'x') +
+  theme_bw() +
+  theme(axis.text.x = element_blank()) +
+  scale_fill_manual(
+    values = c('0x' = '#00008B', '0.5x' = '#b4b0ff', '1' = 'white', 
+               '1.5x' = '#ffc2c2', '2x' = '#d64242', '>2x' = '#8B0000')) 
 ```
 
 ## UMAPs
@@ -217,13 +236,13 @@ dittoSeq::dittoDimPlot(sce, 'cell_type', size = 0.2) +
 Then, we visualise gains and loss proportions for each chromosome on the UMAP.
 
 ```{r plot_chr_gains, fig.width = 10, fig.height = 5}
-pdf('test.pdf')
 paste0('chr', 1:22) %>% head(2) %>%
   purrr::map(function(chr) {
     sce %>%
       Nebulosa::plot_density(
         paste('proportion', c('dupli', 'loss'), chr, sep = '_'),
-        size = 0.5) 
+        size = 0.5) %>%
+      print()
   })
 ```
 
@@ -412,8 +431,8 @@ de_res <- xfun::cache_rds({
     glmGamPoi::test_de(
       fit, 
       contrast = 
-        cond(chr7_gain = 1, cell_type = 'Stromal cells') -
-        cond(chr7_gain = 0, cell_type = 'Stromal cells')
+        cond(chr7_gain = 1, cell_type = 'Stromal cell') -
+        cond(chr7_gain = 0, cell_type = 'Stromal cell')
     )
   
   # define significant up/downregulation and position
@@ -476,4 +495,10 @@ de_res %>%
   dplyr::arrange(lfc, adj_pval) %>%
   head(10) %>%
   knitr::kable()
+```
+
+Next, we plot the top differentially expressed genes onto the plot of locally amplified / lost regions within chr7 to see where they fall.
+
+```{r plot_des_on_regions}
+
 ```

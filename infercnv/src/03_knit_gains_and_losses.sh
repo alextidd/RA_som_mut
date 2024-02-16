@@ -11,7 +11,7 @@ mamba activate jupy
 
 # knit by_celltype
 mkdir -p out/Zhang2023/by_celltype/summary/
-Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(infercnv_dir = 'out/Zhang2023/by_celltype/', cache_dir = 'out/Zhang2023/by_celltype/summary/gains_and_losses_cache/', rerun = F), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_celltype/summary/')"
+Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(infercnv_dir = 'out/Zhang2023/by_celltype/', cache_dir = 'out/Zhang2023/by_celltype/summary/gains_and_losses_cache/', rerun = T), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_celltype/summary/')"
 
 # # knit by_stromal_cluster
 # mkdir -p out/Zhang2023/by_stromal_cluster/summary/
