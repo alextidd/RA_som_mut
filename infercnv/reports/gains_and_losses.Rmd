@@ -398,6 +398,7 @@ dat %>%
 reduced_sce <- xfun::cache_rds({
   
   # pseudobulk the sce object by patient, cell group and chr7 ploidy
+  # (exclude intermediate chr7 values)
   reduced_sce <-
     glmGamPoi::pseudobulk(
       sce[, !is.na(sce$sample) & 

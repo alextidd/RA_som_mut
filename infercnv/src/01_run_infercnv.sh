@@ -34,14 +34,28 @@ mamba activate jupy
 #   -w work/ \
 #   -resume
 
-# run infercnv on stromal clusters
-cat $wd/data/Zhang2023/annotations.tsv |
-awk -F'\t' '{if ((NR == 1) || ($2 == "Stromal cell")) {print} }' \
-> $wd/data/Zhang2023/stromal_annotations.tsv
+# # run infercnv on stromal clusters
+# cat $wd/data/Zhang2023/annotations.tsv |
+# awk -F'\t' '{if ((NR == 1) || ($2 == "Stromal cell")) {print} }' \
+# > $wd/data/Zhang2023/stromal_annotations.tsv
+# /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
+#   --out_dir $wd/out/Zhang2023/by_stromal_cluster/ \
+#   --mappings $wd/data/Zhang2023/mappings.csv \
+#   --annotations $wd/data/Zhang2023/stromal_annotations.tsv \
+#   --annotation_col 'cluster' \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
+  
+# run infercnv on stromal clusters, running all individuals together
+cat $wd/data/Zhang2023/stromal_annotations.tsv |
+awk -F'\t' 'BEGIN{OFS="\t";} NR == 1 {print} ; NR > 1 {print $1,$2"_"$4,$2"_"$4,"all"}' \
+> $wd/data/Zhang2023/stromal_annotations_run_all.tsv
 /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
-  --out_dir $wd/out/Zhang2023/by_stromal_cluster/ \
+  --out_dir $wd/out/Zhang2023/by_stromal_cluster_run_all/ \
   --mappings $wd/data/Zhang2023/mappings.csv \
-  --annotations $wd/data/Zhang2023/stromal_annotations.tsv \
+  --annotations $wd/data/Zhang2023/stromal_annotations_run_all.tsv \
   --annotation_col 'cluster' \
   -c config/infercnv.config \
   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
