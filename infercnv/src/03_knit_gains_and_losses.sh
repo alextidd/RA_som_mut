@@ -9,10 +9,10 @@ cd $wd
 . ~/.bashrc
 mamba activate jupy
 
-# knit by_celltype
-mkdir -p out/Zhang2023/by_celltype/summary/
-Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(infercnv_dir = 'out/Zhang2023/by_celltype/', cache_dir = 'out/Zhang2023/by_celltype/summary/gains_and_losses_cache/', rerun = T), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_celltype/summary/')"
+# # knit by_celltype
+# mkdir -p out/Zhang2023/by_celltype/summary/
+# Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/sce.rds', infercnv_dir = 'out/Zhang2023/by_celltype/', cache_dir = 'out/Zhang2023/by_celltype/summary/gains_and_losses_cache/', rerun = T), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_celltype/summary/')"
 
-# # knit by_stromal_cluster
-# mkdir -p out/Zhang2023/by_stromal_cluster/summary/
-# Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_stromal_cluster/summary/gains_and_losses_cache/', rerun = F), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_stromal_cluster/summary/')"
+# knit by_stromal_cluster
+mkdir -p out/Zhang2023/by_stromal_cluster/summary/
+Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/Stromal_cell_sce.rds', cell_group_name = 'cluster_name', infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_stromal_cluster/summary/gains_and_losses_cache/', rerun = F), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_stromal_cluster/summary/')"
