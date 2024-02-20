@@ -40,8 +40,8 @@ if (params.help) {
 // perform infercnv on each sample
 process infercnv {
   tag "${meta.id}"
-  label "week16core20gb"
-  errorStrategy = { task.exitStatus == 130 ? 'retry' : 'ignore' }
+  label 'week16core60gb'
+  errorStrategy = 'retry'
   publishDir(
     path: "${params.out_dir}/${meta.id}", 
     mode: 'copy',

@@ -49,12 +49,18 @@ mamba activate jupy
 #   -resume
   
 # run infercnv on stromal clusters, running all individuals together
+
 cat $wd/data/Zhang2023/stromal_annotations.tsv |
 awk -F'\t' 'BEGIN{OFS="\t";} NR == 1 {print} ; NR > 1 {print $1,$2"_"$4,$2"_"$4,"all"}' \
 > $wd/data/Zhang2023/stromal_annotations_run_all.tsv
+
+cat $wd/data/Zhang2023/mappings.csv |
+awk -F',' 'BEGIN{OFS=",";} NR == 1 {print} ; NR == 2 {print "all",$2}' \
+> $wd/data/Zhang2023/stromal_mappings_run_all.csv
+
 /software/team205/nextflow-23.04.1-all run nextflow/infercnv.nf \
   --out_dir $wd/out/Zhang2023/by_stromal_cluster_run_all/ \
-  --mappings $wd/data/Zhang2023/mappings.csv \
+  --mappings $wd/data/Zhang2023/stromal_mappings_run_all.csv \
   --annotations $wd/data/Zhang2023/stromal_annotations_run_all.tsv \
   --annotation_col 'cluster' \
   -c config/infercnv.config \

@@ -51,7 +51,7 @@ inferCNV was run on the scRNA-seq data to call copy number variants in synovial 
 
 First, we load the CITE-seq object. We convert it to a SingleCellExperiment object. Then we add the CNV metadata from the inferCNV run to the object.
 
-```{r load_sce, results = 'asis'}
+```{r load_sce, results = 'asis', class.source = 'fold-show'}
 # load gene coords
 coords <-
   readr::read_tsv('data/hg38_gencode_v27.txt', col_names = c('name', 'chr', 'start', 'stop'))
@@ -106,8 +106,6 @@ sce <- sce[, !is.na(sce$proportion_cnv_chr1)]
 sce@colData$cell_group <-
   sce@colData[, params$cell_group_name]
 ```
-
-## `map_metadata_from_infercnv.txt`
 
 The `inferCNV` output file `map_metadata_from_infercnv.txt` contains columns with different CNV measures at whole-chromosome level per cell, with rownames denoting cells. The columns have the following values...
 
@@ -200,6 +198,42 @@ cnv_regions %>%
                '1.5x' = '#ffc2c2', '2x' = '#d64242', '>2x' = '#8B0000')) 
 ```
 
+## Cell type compositions
+
+```{r ct_comp, fig.width = 20, fig.height = 7}
+p_dat <-
+  sce@colData %>%
+  tibble::as_tibble() %>%
+  dplyr::mutate(
+    sample = forcats::fct_infreq(sample),
+    cell_group = forcats::fct_infreq(cell_group)) %>%
+  dplyr::add_count(sample, cell_group, name = 'n_sample_x_cell_group')
+p_base <-
+  p_dat %>%
+  ggplot(aes(fill = cell_group, colour = cell_group)) 
+p1 <- 
+  p_base +
+  geom_point(aes(x = sample, y = cell_group, 
+                 alpha = n_sample_x_cell_group, size = n_sample_x_cell_group)) +
+  theme_classic() +
+  theme(legend.position = 'none') +
+  scale_x_discrete(guide = guide_axis(angle = -90))
+p2 <- 
+  p_base +
+  geom_bar(aes(x = sample), position = 'stack') +
+  theme_void() +
+  theme(legend.position = 'none') 
+p3 <-
+  p_base +
+  geom_bar(aes(y = cell_group), position = 'stack') +
+  theme_void() +
+  theme(legend.position = 'none')
+design <-
+'BB#
+AAC'
+patchwork::wrap_plots(A = p1, B = p2, C = p3, design = design)
+```
+
 ## UMAPs
 
 First, we plot UMAPs by cell grouping.
@@ -209,16 +243,13 @@ dittoSeq::dittoDimPlot(sce, params$cell_group_name, size = 0.2) +
   coord_fixed()
 ```
 
-Then, we visualise gains and loss proportions for each chromosome on the UMAP. The `Nebulosa` package is used to show the values as densities.
+Then, we visualise gains and loss proportions for each chromosome on the UMAP. 
 
 ```{r plot_chr_gains, fig.width = 10, fig.height = 4, results = 'hide'}
 paste0('chr', 1:22) %>% 
   purrr::map(function(chr) {
     events <-
       paste('proportion', c('dupli', 'loss'), chr, sep = '_')
-    sce %>%
-      Nebulosa::plot_density(events, size = 0.5) %>%
-      print()
     reducedDim(sce, 'UMAP_uwot') %>%
       cbind(sce@colData[, events]) %>%
       tibble::as_tibble() %>%
@@ -467,7 +498,6 @@ de_res <- xfun::cache_rds({
 ```
 
 ```{r plot_de}
-# plot
 de_res %>%
   ggplot(aes(x = lfc, y = -log10(adj_pval), colour = direction, 
              size = chr == 'chr7', shape = chr == 'chr7')) +
@@ -512,3 +542,61 @@ de_res %>%
   head(10) %>%
   knitr::kable()
 ```
+
+# Cell group markers
+
+We convert the `SingleCellExperiment` object to a `Seurat` object in order to find the top markers of each cell group.
+
+```{r sce_to_seu}
+seu <- xfun::cache_rds({
+  seu <- Seurat::as.Seurat(sce)
+  Seurat::Idents(seu) <- seu$cell_group
+  seu <- Seurat::ScaleData(seu)
+  seu
+}, file = 'seu.rds', rerun = params$rerun)
+```
+
+Now, we find all differentially expressed genes for each cell group.
+
+```{r markers}
+markers <- xfun::cache_rds({
+  markers <-
+    Seurat::FindAllMarkers(seu)
+  markers
+}, file = 'markers.rds', rerun = params$rerun)
+```
+
+```{r inspect_markers, fig.height = 10, fig.width = 10}
+top2 <-
+  markers %>%
+  tibble::as_tibble() %>% 
+  dplyr::filter(p_val_adj < 0.01, avg_log2FC > 1.5) %>% 
+  dplyr::group_by(cluster) %>% 
+  dplyr::slice_max(order_by = avg_log2FC, n = 2)
+unique(top2$cluster) %>%
+  purrr::walk(function(cg) {
+    genes <- 
+      top2 %>% 
+      dplyr::filter(cluster == cg) %>% 
+      dplyr::pull(gene)
+    list(
+      Seurat::VlnPlot(seu, features = genes),
+      Seurat::FeaturePlot(seu, features = genes, label = T) + coord_fixed()) %>%
+      patchwork::wrap_plots(nrow = 2) +
+      patchwork::plot_annotation(
+        title = paste0(params$cell_group_name, ': ', cg)) %>%
+      print()
+  })
+```
+
+```{r marker_heatmap, fig.height = 10, fig.width = 10}
+top10 <-
+  markers %>%
+  dplyr::group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  dplyr::slice_max(order_by = avg_log2FC, n = 100) %>%
+  dplyr::ungroup()
+Seurat::DoHeatmap(seu, features = top10$gene) + 
+  Seurat::NoLegend()
+```
+
