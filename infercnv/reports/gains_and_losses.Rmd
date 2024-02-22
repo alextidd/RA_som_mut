@@ -342,8 +342,7 @@ p_dat <-
   sce@colData %>%
   tibble::as_tibble() %>%
   dplyr::group_by(sample) %>%
-  dplyr::mutate(cell_group = get(params$cell_group_name),
-                n_cells = dplyr::n())
+  dplyr::mutate(n_cells = dplyr::n())
 
 # define functions
 plot_prop_chr7_gain <- function(p_dat, title) {
@@ -383,20 +382,94 @@ p_dat %>%
   })
 ```
 
+## Assigning whole chromosome gains
+
+Based on the observed distribution of `proportion_dupli_chr7` values and comparing this with the `inferCNV` heatmaps, whole chromosome gains are defined as `proportion_dupli_chr7 > 0.8`. chr7 WT is defined as `proportion_dupli_chr7 < 0.5`.
+
+```{r assign_gains, class.source = 'fold-show'}
+sce <- xfun::cache_rds({
+  
+  # apply cut-offs for whole chr gains and losses
+  paste0('chr', 1:22) %>%
+    purrr::walk(function(chr) {
+      chr_dupli <-
+        sce@colData[, paste0("proportion_dupli_", chr)]
+      sce@colData[, paste0(chr, '_gain')] <<-
+        ifelse(chr_dupli > 0.8, 1, ifelse(chr_dupli < 0.5, 0, NA))
+      chr_loss <-
+        sce@colData[, paste0("proportion_loss_", chr)]
+      sce@colData[, paste0(chr, '_loss')] <<-
+        ifelse(chr_loss > 0.8, 1, ifelse(chr_loss < 0.5, 0, NA))
+    })
+  
+  # return
+  sce 
+  
+}, file = 'sce_w_gains.rds', rerun = params$rerun)
+```
+
+We also can observe the rate coincidence of chr7 and other gains. The LCM-WES data suggested a nested relationship in which there were chr5+ subclones within chr7+ populations. We look for this here.
+
+```{r chr7_and_chr5}
+events <-
+  sce@colData %>%
+  tibble::as_tibble() %>%
+  dplyr::select(sample, cell, cell_group, 
+                dplyr::ends_with('_gain'), 
+                dplyr::ends_with('_loss')) %>%
+  tidyr::pivot_longer(-c('sample', 'cell', 'cell_group')) %>%
+  dplyr::group_by(sample, cell, cell_group) %>%
+  # remove cells in which no calls made
+  dplyr::filter(!all(is.na(value))) %>%
+  dplyr::mutate(
+    event = dplyr::case_when(
+      all(value == 0 | is.na(value)) ~ 'WT',
+      value == 1 ~ name,
+      TRUE ~ NA)) %>%
+  dplyr::summarise(
+    events = paste(sort(unique(na.omit(event))), collapse = ','),
+    n_gains = sum(value, na.rm = T))
+
+p_dat <-
+  events %>%
+  dplyr::ungroup() %>%
+  dplyr::add_count(events) %>%
+  dplyr::mutate(prop = n / dplyr::n()) %>%
+  dplyr::filter(events != 'WT') %>%
+  dplyr::mutate(
+    events = events %>% 
+      gsub('chr', '', .) %>% 
+      gsub('_gain', '+', .) %>%
+      gsub('_loss', '+', .),
+    events = forcats::fct_infreq(events),
+    label1 = scales::label_comma()(n), 
+    label = dplyr::case_when(
+      n < 10 ~ label1,
+      TRUE ~ paste0(label1, ' (', round(prop*100, 2), '%)')
+    ))
+p_dat %>%
+  ggplot(aes(x = events, fill = cell_group, label = label)) +
+  geom_bar() +
+  geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
+  scale_x_discrete(guide = guide_axis(angle = -90)) +
+  ylim(c(0, max(p_dat$n) * 1.1)) +
+  theme_classic()
+p_dat %>%
+  ggplot(aes(x = forcats::fct_infreq(gains), fill = sample, label = label)) +
+  geom_bar() +
+  geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
+  scale_x_discrete(guide = guide_axis(angle = -90)) +
+  ylim(c(0, max(p_dat$n) * 1.1)) +
+  theme_classic()
+```
+
 # Pseudobulking and DGEA
 
 We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows a [tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html) and the [glmGamPoi GitHub](https://github.com/const-ae/glmGamPoi).
 
 We will define chr7+ cells as those with >80% of genes affected by duplication and chr7 WT cells as those with <20% of genes affected. We will pseudobulk by patient, cell group, and chr7 ploidy to produce a reduced object.
 
-```{r chr7_gain, class.source = 'fold-show'}
-sce$chr7_gain <-
-  ifelse(sce$proportion_dupli_chr7 > 0.8, 1, 
-         ifelse(sce$proportion_dupli_chr7 < 0.2, 0, 
-                NA))
-```
-
-```{r chr7_gain_prop, result = 'asis'}
+```{r chr7_gain_prop, results = 'asis'}
 dat <-
   tibble::tibble(chr7_gain_value = sce$chr7_gain,
                cell_group = sce$cell_group) %>%
@@ -493,7 +566,9 @@ de_res <- xfun::cache_rds({
         TRUE ~ NA)) %>%
     dplyr::left_join(coords)
   
+  # return
   de_res
+  
 }, file = 'de_res.rds', rerun = params$rerun)
 ```
 
@@ -547,7 +622,12 @@ de_res %>%
 
 We convert the `SingleCellExperiment` object to a `Seurat` object in order to find the top markers of each cell group.
 
+```{r exit}
+knitr::knit_exit()
+```
+
 ```{r sce_to_seu}
+
 seu <- xfun::cache_rds({
   seu <- Seurat::as.Seurat(sce)
   Seurat::Idents(seu) <- seu$cell_group

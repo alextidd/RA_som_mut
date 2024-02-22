@@ -78,3 +78,12 @@ sce <-
 
 # save
 saveRDS(sce, 'data/Zhang2023/sce/Stromal_cell_sce.rds')
+
+# fibroblasts ----
+
+# subset to fibroblasts only
+sce <-
+  sce[, sce$cluster_name != 'Mu-0: Mural']
+
+# save
+saveRDS(sce, 'data/Zhang2023/sce/Fibroblast_sce.rds')

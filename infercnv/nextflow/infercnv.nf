@@ -1,12 +1,14 @@
 nextflow.enable.dsl=2
 
 // command line arguments
-params.help             = false
-params.mappings         = null
-params.annotations      = null
-params.gene_order_file  = null
-params.out_dir          = './'
-params.annotation_col   = 'celltype'
+params.help               = false
+params.mappings           = null
+params.annotations        = null
+params.gene_order_file    = null
+params.out_dir            = './'
+params.annotation_col     = 'celltype'
+params.analysis_mode      = 'subclusters'
+params.cluster_by_groups  = 'TRUE'
 
 // help
 if (params.help) {
@@ -93,8 +95,8 @@ process infercnv {
             infercnv_obj,
             out_dir = 'out/',
             num_threads = 8, 
-            cluster_by_groups = TRUE,
-            analysis_mode = c('subclusters'),
+            cluster_by_groups = as.logical('${params.cluster_by_groups}'),
+            analysis_mode = c('${params.analysis_mode}'),
             denoise = T,
             noise_logistic = F,
             resume_mode = T,

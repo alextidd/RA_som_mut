@@ -63,6 +63,8 @@ awk -F',' 'BEGIN{OFS=",";} NR == 1 {print} ; NR == 2 {print "all",$2}' \
   --mappings $wd/data/Zhang2023/stromal_mappings_run_all.csv \
   --annotations $wd/data/Zhang2023/stromal_annotations_run_all.tsv \
   --annotation_col 'cluster' \
+  --analysis_mode 'samples' \
+  --cluster_by_groups 'FALSE' \
   -c config/infercnv.config \
   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
   -w work/ \
