@@ -9,9 +9,16 @@ params.location = "irods"
 // The genotyping pipeline will specify an scomatic mutations folder
 params.mutations = null
 // SComatic params
-params.max_cell_types = 1
-params.min_dp = 5
-params.min_cc = 5
+// -> SplitBamCellTypes.py
+params.max_nM = 5             //  maximum number of mismatches for a read
+params.max_NH = 1             //  maximum number of alignment hits for a read
+params.min_MQ = 255           //  minimum mapping quality for a read
+params.n_trim = 5             //  number of bases trimmed from beginning and end of each read
+// -> BaseCellCounter.py
+params.min_dp = 5             //  minimum depth
+params.min_cc = 5             //  minimum number of cells required to consider a genomic site
+// -> BaseCellCaling.step1.py
+params.max_cell_types = 1     //  maximum number of cell types carrying the mutation
 // Output directory
 params.output_dir = './'
 
@@ -86,7 +93,7 @@ process getSampleCelltypes {
 process splitBams {
     label "long"
     input:
-        tuple val(sample), val(donor), path(bam), path(bai), path(celltypes), val(modargs)
+        tuple val(sample), val(donor), path(bam), path(bai), path(celltypes)
     output:
         path("output/*.bam"), emit: "bam"
         path("output/*.bam.bai"), emit: "bai"
@@ -96,8 +103,10 @@ process splitBams {
         python3 ${params.scomatic}/SplitBam/SplitBamCellTypes.py --bam ${bam} \
             --meta ${celltypes} \
             --id ${sample} \
-            --n_trim 5 \
-            ${modargs} \
+            --max_nM ${params.max_nM} \
+            --max_NH ${params.max_NH} \
+            --min_MQ ${params.min_MQ} \
+            --n_trim ${params.n_trim} \
             --outdir output
         rename "s/${sample}/${sample}.${donor}/g" output/*
         """
@@ -141,24 +150,25 @@ process bamToTsv {
     cpus 16
     label "long16core"
     input:
-        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), val(mq)
+        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai)
     output:
         path("output/*.tsv", optional: true)
     script:
         """
         mkdir -p temp
         mkdir -p output
-        python3 ${params.scomatic}/BaseCellCounter/BaseCellCounter.py --bam ${bam} \
-            --ref ${fasta} \
-            --chrom all \
-            --out_folder output \
-            --min_bq 30 \
-            --min_mq ${mq} \
-            --min_cc ${params.min_cc} \
-            --min_dp ${params.min_dp} \
-            --tmp_dir temp \
-            --bin 1000000 \
-            --nprocs ${task.cpus}
+        python3 ${params.scomatic}/BaseCellCounter/BaseCellCounter.py \
+          --bam ${bam} \
+          --ref ${fasta} \
+          --chrom all \
+          --out_folder output \
+          --min_bq 30 \
+          --min_mq ${params.min_MQ} \
+          --min_cc ${params.min_cc} \
+          --min_dp ${params.min_dp} \
+          --tmp_dir temp \
+          --bin 1000000 \
+          --nprocs ${task.cpus}
         rm -rf temp
         """
 }
@@ -285,7 +295,7 @@ process callableSitesCell {
     label "week16core10gb"
     publishDir "${params.output_dir}/${donor}-${params.modality}/cell_callable_sites", mode:"copy"
     input:
-        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), val(mq), path(tsv)
+        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), path(tsv)
     output:
         tuple val(donor), val(celltype), path("*.SitesPerCell.tsv")
     script:
@@ -295,7 +305,7 @@ process callableSitesCell {
             --infile ${tsv} \
             --ref ${fasta} \
             --min_bq 30 \
-            --min_mq ${mq} \
+            --min_mq ${params.min_MQ} \
             --tmp_dir temp \
             --bin 1000000 \
             --nprocs ${task.cpus}
@@ -311,7 +321,7 @@ process bamToGenotype {
     label "long16core10gb"
     publishDir "${params.output_dir}/${donor}-${params.modality}-genotypes", mode:"copy"
     input:
-        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), val(mq), path(allcelltypes), path(mutations)
+        tuple val(donor), val(celltype), path(bam), path(bai), path(fasta), path(fai), path(allcelltypes), path(mutations)
     output:
         path("${donor}.${celltype}.single_cell_genotype.tsv", optional: true)
     script:
@@ -323,7 +333,7 @@ process bamToGenotype {
             --meta ${allcelltypes} \
             --outfile ${donor}.${celltype}.single_cell_genotype.tsv \
             --min_bq 30 \
-            --min_mq ${mq} \
+            --min_mq ${params.min_MQ} \
             --tmp_dir temp \
             --bin 1000000 \
             --nprocs ${task.cpus}
@@ -354,8 +364,11 @@ workflow STEP1 {
         // Nextflow doesn't natively check the paths exist, allowing for irods splitting
         mappings = Channel
             .fromPath(params.mappings, checkIfExists: true)
-            .splitCsv(skip:1)
-            .map({it -> [it[0], file(it[1]).getParent(), file(it[1]).getName(), it[2]]})
+            .splitCsv(header: true)
+            .map({row -> [row.sample_id, 
+                          file(row.bam_file).getParent(), 
+                          file(row.bam_file).getName(), 
+                          row.id]}).view()
         allCelltypes = Channel.fromPath(params.celltypes, checkIfExists: true)
         fasta = Channel.fromPath(params.genome, checkIfExists: true)
         fai = Channel.fromPath(params.genome+".fai", checkIfExists: true)
@@ -389,6 +402,7 @@ workflow STEP1 {
         else {
             error "Unknown location, must be irods or local"
         }
+        
         // Extract the samples as the first element of the tuple
         // Then combine it with the cell types file
         samples = sampleBams
@@ -398,12 +412,7 @@ workflow STEP1 {
         sampleCelltypes = getSampleCelltypes(samples)
         // Join the cell type file with the BAM/BAI list from earlier
         sampleBamsCelltypes = sampleBams.join(sampleCelltypes)
-        // Prepare modality-dependent arguments as an extra argument to the process
-        if (params.modality == "GEX") {
-            sampleBamsCelltypes = sampleBamsCelltypes.combine(Channel.of("--max_nM 5 --max_NH 1"))
-        } else if (params.modality == "ATAC") {
-            sampleBamsCelltypes = sampleBamsCelltypes.combine(Channel.of("--min_MQ 30"))
-        }
+        
         // Step one of scomatic - split the BAMs to cell types on a per sample basis
         sampleFiles = splitBams(sampleBamsCelltypes)
         // This outputs a "list of lists" of BAMs/BAIs, constructed for each sample
@@ -430,13 +439,6 @@ workflow STEP1 {
         indexedCelltypeBams = indexCelltypeBams(unindexedCelltypeBams)
             .combine(fasta)
             .combine(fai)
-        // Let's also store the upcoming min_mq value as used by all processes
-        // 255 for GEX, 30 for ATAC
-        if (params.modality == "GEX") {
-            indexedCelltypeBams = indexedCelltypeBams.combine(Channel.of("255"))
-        } else if (params.modality == "ATAC") {
-            indexedCelltypeBams = indexedCelltypeBams.combine(Channel.of("30"))
-        }
     emit:
         indexedCelltypeBams = indexedCelltypeBams
         allCelltypes = allCelltypes

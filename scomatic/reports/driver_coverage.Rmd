@@ -158,6 +158,26 @@ plot_exons <- function(p_df, p_title) {
     facet_grid(celltype ~ exon, space = 'free_x', scales = 'free_x') 
 }
 
+# function: plot stacked exon coverage
+plot_exons_stacked <- function(p_df, p_title) {
+  p_df %>% 
+    # get only exonic sequence
+    dplyr::filter(feature == 'exon') %>%
+    # fix exon ordering
+    dplyr::mutate(
+      exon = exon %>% gsub('exon', '', .) %>% as.numeric(),
+      facets = ifelse(is.na(celltype), 'all', 'by celltype')) %>%
+    ggplot(aes(x = pos, y = depth, group = celltype, fill = celltype)) +
+    geom_col(position = 'stack') +
+    theme_classic() +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          panel.spacing = unit(.05, 'lines'),
+          panel.border = element_rect(fill = NA)) +
+    labs(title = paste(p_title, '(exons)')) +
+    facet_grid(facets ~ exon, space = 'free_x', scales = 'free_x') 
+}
+
 # create list of plots by gene x sample
 p <- xfun::cache_rds({
   
@@ -210,6 +230,13 @@ p <- xfun::cache_rds({
               # plot exons
               p[[id_i]][[gene_i]][[paste0('exons', p_suffix)]] <<-
                 plot_exons(
+                  p_df = lvl,
+                  p_title = paste0(i, p_suffix)
+                )
+              
+              # plot exons stacked
+              p[[id_i]][[gene_i]][[paste0('exons_stacked', p_suffix)]] <<-
+                plot_exons_stacked(
                   p_df = lvl,
                   p_title = paste0(i, p_suffix)
                 )

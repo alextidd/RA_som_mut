@@ -42,7 +42,6 @@ mamba activate jupy
 /software/team205/nextflow-23.04.1-all run nextflow/driver_coverage.nf \
     --mappings data/Zhang2023/coverage_mappings.csv \
     --drivers /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/driver_genes/driver_gene_coords_for_coverage.tsv \
-    --ref_cds /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/dndscv/ref_cds.rds \
     --out_dir /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/ \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
     --location local \

@@ -7,11 +7,29 @@ set -eo pipefail
 wd=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/
 cd $wd
 config_dir=/nfs/team205/kp9/nextflow/scomatic/
-mkdir -p work/ out/Zhang2023/default_thresholds/ log/
+mkdir -p work/ log/
 
 # conda activate an environment which has docopt installed so jsub works
 . ~/.bashrc
 mamba activate jupy
+
+# use scomatic to get celltype bams for driver coverage
+/software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
+    -entry STEP1 \
+    --max_nM = 1000000 \
+    --max_NH = 1000000 \
+    --min_MQ = 0 \
+    --n_trim = 0 \
+    --min_dp = 0 \
+    --min_cc = 0 \
+    --projectDir $PWD \
+    -params-file $config_dir/GEX.json \
+    -c config/Zhang2023.config \
+    -c $config_dir/LSF.config \
+    -w work/ \
+    --output_dir out/Zhang2023/no_thresholds/ \
+    --location local \
+    -resume
 
 # run scomatic
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
