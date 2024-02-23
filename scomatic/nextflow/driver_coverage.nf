@@ -36,21 +36,21 @@ if (params.help) {
 // Then either retrieve the BAI or make one via indexing
 // The maxForks of 10 was set after asking jc18 about best iRODS practices
 process irods {
-  tag "${meta.id}"
+  tag "${meta.id}_${meta.celltype}"
   maxForks 10
   label 'normal4core'
   input:
     tuple val(meta), val(bam)
   output:
-    tuple val(meta), path("${meta.id}.bam"), path("${meta.id}.bam.bai"), emit: bams
+    tuple val(meta), path("${meta.celltype}.bam"), path("${meta.celltype}.bam.bai"), emit: bams
   script:
     """
-    iget -K ${bam} ${meta.id}.bam
+    iget -K ${bam} ${meta.celltype}.bam
     if [[ `ils ${bam}.bai | wc -l` == 1 ]]
     then
-        iget -K ${bam}.bai ${meta.id}.bam.bai
+        iget -K ${bam}.bai ${meta.celltype}.bam.bai
     else
-        samtools index -@ ${task.cpus} ${meta.id}.bam
+        samtools index -@ ${task.cpus} ${meta.celltype}.bam
     fi
     """
 }
@@ -58,27 +58,54 @@ process irods {
 // The equivalent of an irods download, but for a local copy of mappings
 // Symlink the BAM/BAI appropriately so they're named the right thing for downstream
 process local {
-  tag "${meta.id}"
+  tag "${meta.id}_${meta.celltype}"
   maxForks 10
   label 'normal4core'
   errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
   input:
     tuple val(meta), val(bam)
   output:
-    tuple val(meta), path("${meta.id}.bam"), path("${meta.id}.bam.bai"), emit: bams
+    tuple val(meta), path("${meta.celltype}.bam"), path("${meta.celltype}.bam.bai")
   script:
     """
     # create local symbolic link 
-    ln -s ${bam} ${meta.id}.bam
+    ln -s ${bam} ${meta.celltype}.bam
     if [ -f "${bam}.bai" ] ; then
-        ln -s ${bam}.bai ${meta.id}.bam.bai
+        ln -s ${bam}.bai ${meta.celltype}.bam.bai
     else
-        samtools index -@ ${task.cpus} ${meta.id}.bam
+        samtools index -@ ${task.cpus} ${meta.celltype}.bam
     fi
     """
 }
 
+// calculate nucleotidic coverage of each driver position in the BAMs 
+// (using bedtools)
+process multicov {
+  tag "${meta.id}"
+  label 'long16core10gb'
+  input:
+    tuple val(meta), path(bam), path(bai)
+  output:
+    path('coverage.bed'), emit: depths
+  script:
+    """
+    # get header
+    echo -en 'chr\tstart\tend\tgene\t' > ${meta.id}_coverage.hdr
+    echo \$(ls *.bam) | tr ' ' '\t' >> ${meta.id}_coverage.hdr
+    
+    # re-index
+    samtools index -@ ${task.cpus} \$(ls *.bam)
+
+    # get coverage
+    bedtools multicov \
+      -bams \$(ls *.bam) \
+      -bed ${params.drivers} \
+      > ${meta.id}_coverage.bed
+    """
+}
+
 // calculate nucleotidic coverage of each driver position in the BAMs
+// (using samtools)
 process coverage {
   tag "${meta.id}"
   label 'long16core10gb'
@@ -145,7 +172,7 @@ process report {
     """
 }
 
-// main scomatic workflow
+// main workflow
 workflow {
 
   // check input files have been passed
@@ -175,19 +202,25 @@ workflow {
     sample_bams = local(mappings)
   }
   
-  // get coverage 
+  // collect bams and run multicov
   sample_bams
-  | coverage
-  
-  // group by id, concat depths files, collect all 
-  coverage.out.depths 
-  | map { meta, depths -> [meta.subMap('id'), depths] }
+  | map { meta, bam, bai -> [meta.subMap('id'), bam, bai] }
   | groupTuple
-  | concat_depths
-  | collect 
-  | set { collected_depths }
+  | view
+  | multicov
+  //// get coverage 
+  //sample_bams
+  //| coverage
   
-  // knit report
-  report(collected_depths, "${baseDir}/../reports/driver_coverage.Rmd")
+  //// group by id, concat depths files, collect all 
+  //coverage.out.depths 
+  //| map { meta, depths -> [meta.subMap('id'), depths] }
+  //| groupTuple
+  //| concat_depths
+  //| collect 
+  //| set { collected_depths }
+  
+  //// knit report
+  //report(collected_depths, "${baseDir}/../reports/driver_coverage.Rmd")
   
 }

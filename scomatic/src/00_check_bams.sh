@@ -17,7 +17,7 @@ mamba activate jupy
   done 2>&1 | grep '\[' | sed 's/\[/\t\[/g' ;
 ) | cat > data/Zhang2023/truncated_bams.tsv 
 
-
+# # get full bam report
 # for bam in /lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/*/possorted_genome_bam.bam ; do
 #   echo $bam
 #   java -jar ~/bin/picard.jar ValidateSamFile I=$bam MODE=SUMMARY 2>&1 

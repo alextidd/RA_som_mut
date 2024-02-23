@@ -27,17 +27,21 @@ mappings <-
     id = sample_id
   ) 
 
-# check for truncation
+# check for truncation and filter out
 truncated_bams <- 
   readr::read_tsv('data/Zhang2023/truncated_bams.tsv')
-
-# filter out
 mappings <-
   mappings %>%
   dplyr::filter(!bam_file %in% truncated_bams$bam_file)
 
+# save
 mappings %>%
     readr::write_csv('data/Zhang2023/mappings.csv')
+
+# save test
+mappings %>%
+  head(2) %>%
+  readr::write_csv('data/Zhang2023/test_mappings.csv')
 
 # celltypes TSV (Index Cell_type) -----
 dat <-

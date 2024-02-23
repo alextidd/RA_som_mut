@@ -86,20 +86,29 @@ drivers_pos <-
         mart = ensembl) %>%
   tibble::as_tibble() %>% 
   # fix colnames
-  dplyr::mutate(gene = hgnc_symbol, 
-                chr = chromosome_name, 
-                start = start_position,
-                end = end_position) %>%
+  dplyr::transmute(
+    chr = chromosome_name, 
+    start = start_position,
+    end = end_position,
+    gene = hgnc_symbol) %>%
   # remove weird chromosomes
   dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
+
+# save bed
+drivers_pos %>%
+  dplyr::transmute(
+    paste0('chr', chr), start, end, gene
+  ) %>%
+  readr::write_tsv('data/driver_genes/driver_gene_coords_for_coverage.bed',
+                   col_names = F)
 
 # save positions
 drivers_pos %>% 
   dplyr::group_by(gene) %>%
   dplyr::summarise(coords = 
-                     paste0(unique(chromosome_name), ':', 
-                            min(start_position), '-', 
-                            max(end_position))) %>%
+                     paste0(unique(chr), ':', 
+                            min(start), '-', 
+                            max(end))) %>%
   readr::write_tsv('data/driver_genes/driver_gene_coords_for_coverage.tsv')
 
 # get reference object ----

@@ -12,7 +12,7 @@ mamba activate jupy
 # # knit
 # Rscript -e "rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))"
 
-# # create mappings 
+# # create mappings
 # bams_dir=/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/
 # ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/default_thresholds/
 # out_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/
@@ -20,7 +20,7 @@ mamba activate jupy
 #   echo 'id,bam,celltype' ;
 #   while read -r id ; do
 #     # check if ct bams directory exists
-#     if [ -d $ct_bams_dir/${id/-/_}/ ] ; then 
+#     if [ -d $ct_bams_dir/${id/-/_}/ ] ; then
 #       ct_bams=($(ls $ct_bams_dir/${id/-/_}/celltype_bams/*.bam))
 #       # check if scomatic successfully ran
 #       if [ ${#ct_bams[*]} -gt 0 ] ; then
@@ -35,14 +35,23 @@ mamba activate jupy
 #   <(sed 1d /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/data/Zhang2023/mappings.csv | cut -d, -f1 | sort -u)
 # ) | cat > data/Zhang2023/coverage_mappings.csv
 
-# # test mappings
-# cat data/Zhang2023/coverage_mappings.csv | head -10 > data/Zhang2023/coverage_mappings_test.csv
-
 # run
 /software/team205/nextflow-23.04.1-all run nextflow/driver_coverage.nf \
     --mappings data/Zhang2023/coverage_mappings.csv \
     --drivers /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/driver_genes/driver_gene_coords_for_coverage.tsv \
     --out_dir /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/ \
+    -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+    --location local \
+    -w work/ \
+    -resume
+    
+# run test
+# head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv
+# head -2 data/driver_genes/driver_gene_coords_for_coverage.bed > data/driver_genes/driver_gene_coords_for_coverage_test.bed
+/software/team205/nextflow-23.04.1-all run $wd/nextflow/driver_coverage.nf \
+    --mappings $wd/data/Zhang2023/coverage_mappings_test.csv \
+    --drivers $wd/data/driver_genes/driver_gene_coords_for_coverage_test.bed \
+    --out_dir $wd/out/Zhang2023/coverage/ \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
     --location local \
     -w work/ \

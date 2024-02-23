@@ -32,25 +32,25 @@ mamba activate jupy
     --output_dir out/Zhang2023/no_thresholds/ \
     --location local
 
-# run scomatic
-/software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
-    --projectDir $PWD \
-    -params-file $config_dir/GEX.json \
-    -c config/Zhang2023.config \
-    -c $config_dir/LSF.config \
-    -w work/ \
-    --output_dir out/Zhang2023/default_thresholds/ \
-    --location local \
-    -resume
-
-# get single cell genotypes
-/software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
-    -entry genotypes \
-    --projectDir $PWD \
-    -params-file $config_dir/GEX.json \
-    -c config/Zhang2023.config \
-    -c $config_dir/LSF.config \
-    -w work/ \
-    --output_dir out/Zhang2023/default_thresholds/ \
-    --location local \
-    -resume
+# # run scomatic
+# /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
+#     --projectDir $PWD \
+#     -params-file $config_dir/GEX.json \
+#     -c config/Zhang2023.config \
+#     -c $config_dir/LSF.config \
+#     -w work/ \
+#     --output_dir out/Zhang2023/default_thresholds/ \
+#     --location local \
+#     -resume
+# 
+# # get single cell genotypes
+# /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
+#     -entry genotypes \
+#     --projectDir $PWD \
+#     -params-file $config_dir/GEX.json \
+#     -c config/Zhang2023.config \
+#     -c $config_dir/LSF.config \
+#     -w work/ \
+#     --output_dir out/Zhang2023/default_thresholds/ \
+#     --location local \
+#     -resume
