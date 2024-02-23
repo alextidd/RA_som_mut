@@ -40,19 +40,20 @@ mamba activate jupy
     --mappings data/Zhang2023/coverage_mappings.csv \
     --drivers /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/driver_genes/driver_gene_coords_for_coverage.tsv \
     --out_dir /lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/ \
+    --min_MQ 0 \
     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
     --location local \
-    -w work/ \
+    -w cov_work/ \
     -resume
     
-# run test
-# head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv
-# head -2 data/driver_genes/driver_gene_coords_for_coverage.bed > data/driver_genes/driver_gene_coords_for_coverage_test.bed
-/software/team205/nextflow-23.04.1-all run $wd/nextflow/driver_coverage.nf \
-    --mappings $wd/data/Zhang2023/coverage_mappings_test.csv \
-    --drivers $wd/data/driver_genes/driver_gene_coords_for_coverage_test.bed \
-    --out_dir $wd/out/Zhang2023/coverage/ \
-    -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-    --location local \
-    -w work/ \
-    -resume
+# # run test
+# # head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv
+# # head -2 data/driver_genes/driver_gene_coords_for_coverage.bed > data/driver_genes/driver_gene_coords_for_coverage_test.bed
+# /software/team205/nextflow-23.04.1-all run $wd/nextflow/driver_coverage.nf \
+#     --mappings $wd/data/Zhang2023/coverage_mappings_test.csv \
+#     --drivers $wd/data/driver_genes/driver_gene_coords_for_coverage.tsv \
+#     --out_dir out/Zhang2023/coverage/ \
+#     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#     --location local \
+#     -w work/ \
+#     -resume

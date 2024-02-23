@@ -6,6 +6,7 @@ params.mappings   = null
 params.drivers    = null
 params.out_dir    = 'out/'
 params.location   = 'irods'
+params.min_MQ     = 30
 
 // help
 if (params.help) {
@@ -78,70 +79,54 @@ process local {
     """
 }
 
-// calculate nucleotidic coverage of each driver position in the BAMs 
-// (using bedtools)
-process multicov {
-  tag "${meta.id}"
-  label 'long16core10gb'
-  input:
-    tuple val(meta), path(bam), path(bai)
-  output:
-    path('coverage.bed'), emit: depths
-  script:
-    """
-    # get header
-    echo -en 'chr\tstart\tend\tgene\t' > ${meta.id}_coverage.hdr
-    echo \$(ls *.bam) | tr ' ' '\t' >> ${meta.id}_coverage.hdr
-    
-    # re-index
-    samtools index -@ ${task.cpus} \$(ls *.bam)
-
-    # get coverage
-    bedtools multicov \
-      -bams \$(ls *.bam) \
-      -bed ${params.drivers} \
-      > ${meta.id}_coverage.bed
-    """
-}
-
 // calculate nucleotidic coverage of each driver position in the BAMs
-// (using samtools)
+// (using samtools depth)
 process coverage {
   tag "${meta.id}"
   label 'long16core10gb'
   input:
     tuple val(meta), path(bam), path(bai)
   output:
-    tuple val(meta), path('${meta.id}_depths_*.tsv'), emit: depths
+    tuple val(meta), path('${meta.id}_${meta.celltype}_coverage.tsv'), emit: coverages
   script:
     """
     (
       # header
-      echo -e 'chr\\tpos\\tdepth\\tgene\\tcelltype' ;
+      echo -e 'chr\\tpos\\tgene\\t${meta.celltype}' ;
       
       # samtools depth to pile up driver regions
       while read -r gene coords ; do
-        samtools depth -a -r \$coords -Q 30 ${bam} |
-        awk -v gene=\$gene -v celltype="${meta.celltype}" '{print \$0"\\t"gene"\\t"celltype}'
+        samtools depth -a -r \$coords --min-MQ ${params.min_MQ} ${bam} |
+        awk -v FS='\\t' -v OFS='\\t' -v gene=\$gene '{print \$1,\$2,gene,\$3}'
       done < <(sed 1d ${params.drivers}) ;
 
-    ) | cat > ${meta.id}_depths_${meta.celltype}.tsv
+    ) | cat > ${meta.celltype}_coverage.tsv
     """
 }
 
-// concat the depths files
-process concat_depths {
+// concat the coverage files
+process cbind_coverages {
   tag "${meta.id}"
   label 'normal4core'
   publishDir "${params.out_dir}/${meta.id}", mode: 'copy'
   input:
-    tuple val(meta), path(depths)
+    tuple val(meta), path(coverages)
   output:
-    path('${meta.id}_depths.tsv')
+    path('coverage.tsv')
   script:
     """
-    head -n1 ${meta.id}_depths_NA.tsv > ${meta.id}_depths.tsv
-    tail -n +2 -q ${meta.id}_depths_*.tsv >> ${meta.id}_depths.tsv
+    # get coord / gene rows
+    cut -f1-3 NA_coverage.tsv \
+    > coverage.tsv
+    
+    # extract depth columns
+    for ct_file in *_coverage.tsv ; do
+      cut -f4 $ct_file > $ct_file.tmp
+    done
+    
+    # paste together
+    paste coverage.tsv *.tmp \
+    > coverage.tsv
     """
 }
 
@@ -151,7 +136,7 @@ process report {
   label 'long16core10gb'
   publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
-    path(depths)
+    path(coverages)
     path(rmd)
   output:
     path('driver_coverage.html')
@@ -202,25 +187,19 @@ workflow {
     sample_bams = local(mappings)
   }
   
-  // collect bams and run multicov
-  sample_bams
-  | map { meta, bam, bai -> [meta.subMap('id'), bam, bai] }
-  | groupTuple
-  | view
-  | multicov
-  //// get coverage 
-  //sample_bams
-  //| coverage
+  // get coverage
+  sample_bams 
+  | coverage
   
-  //// group by id, concat depths files, collect all 
-  //coverage.out.depths 
-  //| map { meta, depths -> [meta.subMap('id'), depths] }
-  //| groupTuple
-  //| concat_depths
-  //| collect 
-  //| set { collected_depths }
+  // group by id, concat coverage files, collect all 
+  coverage.out.coverages 
+  | map { meta, coverages -> [meta.subMap('id'), coverages] }
+  | groupTuple
+  | cbind_coverages
+  | collect 
+  | set { collected_coverages }
   
   //// knit report
-  //report(collected_depths, "${baseDir}/../reports/driver_coverage.Rmd")
+  //report(collected_coverages, "${baseDir}/../reports/driver_coverage.Rmd")
   
 }
