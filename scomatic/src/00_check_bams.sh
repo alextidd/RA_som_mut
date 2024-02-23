@@ -8,8 +8,18 @@ cd $wd
 . ~/.bashrc
 mamba activate jupy
 
-for bam in /lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/*/possorted_genome_bam.bam ; do
-  echo $bam
-  java -jar ~/bin/picard.jar ValidateSamFile I=$bam MODE=SUMMARY 2>&1 
-  echo
-done > out/Zhang2023/check_bams.txt
+# get truncated bams
+(
+  echo -e 'bam_file\tmessage' ;
+  for i in /lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/BRI-*/possorted_genome_bam.bam ; do 
+    echo -n $i
+    samtools view -h $i | head -1 
+  done 2>&1 | grep '\[' | sed 's/\[/\t\[/g' ;
+) | cat > data/Zhang2023/truncated_bams.tsv 
+
+
+# for bam in /lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/*/possorted_genome_bam.bam ; do
+#   echo $bam
+#   java -jar ~/bin/picard.jar ValidateSamFile I=$bam MODE=SUMMARY 2>&1 
+#   echo
+# done > out/Zhang2023/check_bams.txt

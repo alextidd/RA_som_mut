@@ -14,16 +14,29 @@ dir.create('data/')
 # Zhang 2023 ----
 # mappings CSV (sample_id,bam_file,id) -----
 dir.create('data/Zhang2023/')
-list.files(
+mappings <-
+  list.files(
       cellranger_dir,
       pattern = 'possorted_genome_bam.bam$',
       recursive = T, full.names = T) %>%
   tibble::tibble(bam_file = .) %>%
   # get parent directory (= id)
   dplyr::mutate(
+    bam_file = normalizePath(bam_file),
     sample_id = bam_file %>% dirname() %>% basename() %>% gsub('-', '_', .),
     id = sample_id
-  ) %>%
+  ) 
+
+# check for truncation
+truncated_bams <- 
+  readr::read_tsv('data/Zhang2023/truncated_bams.tsv')
+
+# filter out
+mappings <-
+  mappings %>%
+  dplyr::filter(!bam_file %in% truncated_bams$bam_file)
+
+mappings %>%
     readr::write_csv('data/Zhang2023/mappings.csv')
 
 # celltypes TSV (Index Cell_type) -----

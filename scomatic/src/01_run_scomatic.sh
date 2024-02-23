@@ -14,22 +14,23 @@ mkdir -p work/ log/
 mamba activate jupy
 
 # use scomatic to get celltype bams for driver coverage
+# set all thresholds such that no cells are removedand we get full unfiltered
+# celltype-specific bams
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     -entry STEP1 \
-    --max_nM = 1000000 \
-    --max_NH = 1000000 \
-    --min_MQ = 0 \
-    --n_trim = 0 \
-    --min_dp = 0 \
-    --min_cc = 0 \
+    --max_nM 1000000 \
+    --max_NH 1000000 \
+    --min_MQ 0 \
+    --n_trim 0 \
+    --min_dp 0 \
+    --min_cc 0 \
     --projectDir $PWD \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
     -c $config_dir/LSF.config \
     -w work/ \
     --output_dir out/Zhang2023/no_thresholds/ \
-    --location local \
-    -resume
+    --location local
 
 # run scomatic
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \

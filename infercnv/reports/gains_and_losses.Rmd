@@ -455,7 +455,7 @@ p_dat %>%
   ylim(c(0, max(p_dat$n) * 1.1)) +
   theme_classic()
 p_dat %>%
-  ggplot(aes(x = forcats::fct_infreq(gains), fill = sample, label = label)) +
+  ggplot(aes(x = forcats::fct_infreq(events), fill = sample, label = label)) +
   geom_bar() +
   geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
   scale_x_discrete(guide = guide_axis(angle = -90)) +

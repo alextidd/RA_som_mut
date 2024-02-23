@@ -51,7 +51,7 @@ mamba activate jupy
 # run infercnv on stromal clusters, running all individuals together
 
 cat $wd/data/Zhang2023/stromal_annotations.tsv |
-awk -F'\t' 'BEGIN{OFS="\t";} NR == 1 {print} ; NR > 1 {print $1,$2"_"$4,$2"_"$4,"all"}' \
+awk -F'\t' 'BEGIN{OFS="\t";} NR == 1 {print} ; NR > 1 {print $1,$2,$3,"all"}' \
 > $wd/data/Zhang2023/stromal_annotations_run_all.tsv
 
 cat $wd/data/Zhang2023/mappings.csv |

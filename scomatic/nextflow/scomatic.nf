@@ -368,7 +368,7 @@ workflow STEP1 {
             .map({row -> [row.sample_id, 
                           file(row.bam_file).getParent(), 
                           file(row.bam_file).getName(), 
-                          row.id]}).view()
+                          row.id]})
         allCelltypes = Channel.fromPath(params.celltypes, checkIfExists: true)
         fasta = Channel.fromPath(params.genome, checkIfExists: true)
         fai = Channel.fromPath(params.genome+".fai", checkIfExists: true)
