@@ -14,7 +14,7 @@ mamba activate jupy
 
 # # create mappings
 # bams_dir=/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/
-# ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/default_thresholds/
+# ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/no_thresholds/
 # out_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/
 # (
 #   echo 'id,bam,celltype' ;
