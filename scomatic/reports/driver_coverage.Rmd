@@ -13,7 +13,6 @@ output:
     toc_depth: 4
     theme: lumen
 params:
-  id: NULL
   drivers: NULL
   ref_cds: NULL
   cache_dir: './driver_coverage_cache/'
@@ -34,30 +33,118 @@ knitr::opts_chunk$set(
 library(magrittr)
 library(ggplot2)
 library(gridExtra)
+library(GenomicRanges)
+library(BSgenome)
 
 # dev.off() if there is a device
 dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 ```
 
-We read in drivers and their depths.
+We read in drivers and their coverage by sample / celltype.
 
 ```{r read_cov}
-# read coverage
-cov <- xfun::cache_rds({
-  cov <-
-    list.files(pattern = '_depths.tsv') %>% 
-    purrr::set_names(., gsub('_depths.tsv', '', .)) %>%
-    purrr::map(function(file) {
-      file %>%
-        readr::read_tsv() %>%
-        dplyr::mutate(chr = as.character(chr))
-    }) %>%
-    dplyr::bind_rows(.id = 'id')
-  cov
-}, file = 'cov.rds', rerun = params$rerun)
-
 # read drivers
 drivers <- readr::read_tsv(params$drivers)
+
+# read coverage
+cov <- xfun::cache_rds({
+  
+  cov <-
+    list.files(pattern = '_coverage.tsv') %>% 
+    purrr::set_names(., gsub('_coverage.tsv', '', .)) %>%
+    purrr::map(function(file) {
+      
+      # read  
+      df <- 
+        readr::read_tsv(file, show_col_types = F) %>%
+        dplyr::rename(all = `NA`) 
+      
+      # reformat for GenVisR
+      df %>%
+        dplyr::select(-c(chr, pos, gene)) %>%
+        colnames() %>%
+        purrr::set_names(., .) %>%
+        purrr::map(function(ct) {
+          df %>%
+            dplyr::transmute(
+              gene,
+              chromosome = paste0('chr', chr), 
+              end = pos, 
+              cov = get(ct)) 
+          
+          }) %>%
+        dplyr::bind_rows(.id = 'celltype')
+      
+    }) %>%
+    dplyr::bind_rows(.id = 'id') %>%
+    split(., .$gene)
+  
+  # return
+  cov
+  
+}, file = 'cov.rds', rerun = params$rerun)
+```
+
+We also load the `BSgenome` and `TxDb` objects.
+
+```{r bsgenome}
+# BSgenome
+library("BSgenome.Hsapiens.UCSC.hg38")
+genome <- BSgenome.Hsapiens.UCSC.hg38
+
+# TxDb
+library("TxDb.Hsapiens.UCSC.hg38.knownGene")
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+```
+
+Then we plot the coverage.
+
+```{r gencov}
+plot_cov <- function(cov, gene, var, expand_features_of_interest = T) {
+  
+  # split by variable(s)
+  x <-
+    cov[[gene]] %>%
+    dplyr::select(chromosome, end, cov) %>%
+    split(., cov[[gene]][, var])
+  
+  # make granges obj
+  gr <-
+    GRanges(
+      seqnames = as.character(unique(cov[[gene]]$chromosome)),
+      ranges = IRanges(start = min(cov[[gene]]$end) - 500,
+                       end = max(cov[[gene]]$end) + 500))
+  
+  # check what to transform
+  transform <- c('Intron', 'CDS', 'UTR')
+  base <- c(10, 2, 2)
+  if (expand_features_of_interest == T) { base <- transform <- NA }
+  
+  # plot
+  GenVisR::genCov(
+    x = x,
+    txdb = txdb, 
+    gr = gr, 
+    genome = genome,
+    cov_plotType = 'line',
+    cov_plotLayer = ggplot2::theme(axis.title.y = ggplot2::element_blank()),
+    label_txtSize = 4,
+    lab2plot_ratio = c(2, length(x)),
+    gene_labelTranscriptSize = 2,
+    gene_name = gene,
+    base = base,
+    transform = transform)
+  
+}
+
+plot_cov(cov, 'ARID2', 'celltype') 
+plot_cov(cov, 'ARID2', 'celltype', F)
+plot_cov(cov, 'ARID2', 'id')
+plot_cov(cov, 'ARID2', 'id', F)
+```
+
+```{r exit}
+knitr::knit_exit()
 ```
 
 ### Annotate exons and introns

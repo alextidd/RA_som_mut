@@ -14,10 +14,12 @@ mkdir -p work/ log/
 mamba activate jupy
 
 # use scomatic to get celltype bams for driver coverage
-# set all thresholds such that no cells are removedand we get full unfiltered
+# set all thresholds such that no cells are removed and we get full unfiltered
 # celltype-specific bams
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     -entry STEP1 \
+    --publish_celltype_bams true \
+    --output_dir out/Zhang2023/coverage/ \
     --max_nM 1000000 \
     --max_NH 1000000 \
     --min_MQ 0 \
@@ -29,7 +31,6 @@ mamba activate jupy
     -c config/Zhang2023.config \
     -c $config_dir/LSF.config \
     -w work/ \
-    --output_dir out/Zhang2023/no_thresholds/ \
     --location local
 
 # # run scomatic

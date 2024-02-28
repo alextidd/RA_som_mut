@@ -82,12 +82,13 @@ process local {
 // calculate nucleotidic coverage of each driver position in the BAMs
 // (using samtools depth)
 process coverage {
-  tag "${meta.id}"
-  label 'long16core10gb'
+  tag "${meta.id}_${meta.celltype}"
+  memory = { 5.GB * task.attempt }
+  label 'normal'
   input:
     tuple val(meta), path(bam), path(bai)
   output:
-    tuple val(meta), path('${meta.id}_${meta.celltype}_coverage.tsv'), emit: coverages
+    tuple val(meta), path("${meta.celltype}_coverage.tsv"), emit: coverages
   script:
     """
     (
@@ -96,7 +97,7 @@ process coverage {
       
       # samtools depth to pile up driver regions
       while read -r gene coords ; do
-        samtools depth -a -r \$coords --min-MQ ${params.min_MQ} ${bam} |
+        samtools depth -a -Q ${params.min_MQ} -r \$coords ${bam} |
         awk -v FS='\\t' -v OFS='\\t' -v gene=\$gene '{print \$1,\$2,gene,\$3}'
       done < <(sed 1d ${params.drivers}) ;
 
@@ -112,21 +113,25 @@ process cbind_coverages {
   input:
     tuple val(meta), path(coverages)
   output:
-    path('coverage.tsv')
+    path("${meta.id}_coverage.tsv")
   script:
     """
-    # get coord / gene rows
-    cut -f1-3 NA_coverage.tsv \
-    > coverage.tsv
+    #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
     
-    # extract depth columns
-    for ct_file in *_coverage.tsv ; do
-      cut -f4 $ct_file > $ct_file.tmp
-    done
+    library(magrittr)
     
-    # paste together
-    paste coverage.tsv *.tmp \
-    > coverage.tsv
+    # load in files, join
+    cov <-
+      list.files(pattern = '_coverage.tsv') %>%
+      purrr::set_names(., gsub('_coverage.tsv', '', .)) %>%
+      purrr::map(function(file) {
+        readr::read_tsv(file, show_col_types = F)
+      }) %>%
+      purrr::reduce(dplyr::full_join, by = c('chr', 'pos', 'gene'))
+      
+    # write joined file
+    cov %>%
+      readr::write_tsv('${meta.id}_coverage.tsv')
     """
 }
 
@@ -146,7 +151,6 @@ process report {
     rmarkdown::render(
       "${rmd}",
       params = list(
-        id = "${meta.id}",
         ref_cds = "${params.ref_cds}",
         cache_dir = "${params.out_dir}/summary/driver_coverage_cache/",
         drivers = "${params.drivers}",
@@ -197,9 +201,10 @@ workflow {
   | groupTuple
   | cbind_coverages
   | collect 
+  | view
   | set { collected_coverages }
   
-  //// knit report
-  //report(collected_coverages, "${baseDir}/../reports/driver_coverage.Rmd")
+  // knit report
+  report(collected_coverages, "${baseDir}/../reports/driver_coverage.Rmd")
   
 }

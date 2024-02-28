@@ -8,6 +8,8 @@ params.celltypes = null
 params.location = "irods"
 // The genotyping pipeline will specify an scomatic mutations folder
 params.mutations = null
+// Publish the celltype-split BAMs to the celltype_bams/ subdirectory? 
+params.publish_celltype_bams = false
 // SComatic params
 // -> SplitBamCellTypes.py
 params.max_nM = 5             //  maximum number of mismatches for a read
@@ -129,7 +131,9 @@ process mergeCelltypeBams {
 // Index the donor-celltype BAMs, returning both the BAM and BAI
 process indexCelltypeBams {
     label "normal4core"
-    publishDir "${params.output_dir}/${donor}/celltype_bams/", mode:"copy"
+    publishDir "${params.output_dir}/${donor}/celltype_bams/", 
+      mode: "copy",
+      enabled: params.publish_celltype_bams
     input:
         tuple val(donor), val(celltype), path(bam)
     output:

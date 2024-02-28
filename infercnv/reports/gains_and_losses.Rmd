@@ -18,6 +18,8 @@ params:
   infercnv_dir: NULL
   cache_dir: NULL
   rerun: true
+  max_prop_for_wt: 0.5
+  min_prop_for_cnv: 0.8
 ---
 
 ```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
@@ -190,7 +192,7 @@ cnv_regions %>%
                aes(y = -..density..), 
                position = position_stack(reverse = T), 
                colour = NA) +
-  ggh4x::facet_grid2(chr ~ cell_group, scales = 'free', independent = 'x') +
+  ggh4x::facet_grid2(chr ~ cell_group, scales = 'free_x', independent = 'x') +
   theme_bw() +
   theme(axis.text.x = element_blank()) +
   scale_fill_manual(
@@ -382,9 +384,9 @@ p_dat %>%
   })
 ```
 
-## Assigning whole chromosome gains
+## Assigning whole chromosome-level events
 
-Based on the observed distribution of `proportion_dupli_chr7` values and comparing this with the `inferCNV` heatmaps, whole chromosome gains are defined as `proportion_dupli_chr7 > 0.8`. chr7 WT is defined as `proportion_dupli_chr7 < 0.5`.
+Based on the observed distribution of `proportion_dupli_chr7` values and comparing this with the `inferCNV` heatmaps, whole chromosome gains are defined as `proportion_dupli_chr*` > `r params$min_prop_for_cnv`. Diploidy is defined as `proportion_dupli_chr*` < `r params$max_prop_for_wt`.
 
 ```{r assign_gains, class.source = 'fold-show'}
 sce <- xfun::cache_rds({
@@ -395,11 +397,15 @@ sce <- xfun::cache_rds({
       chr_dupli <-
         sce@colData[, paste0("proportion_dupli_", chr)]
       sce@colData[, paste0(chr, '_gain')] <<-
-        ifelse(chr_dupli > 0.8, 1, ifelse(chr_dupli < 0.5, 0, NA))
+        ifelse(chr_dupli > params$min_prop_for_cnv, 1, 
+               ifelse(chr_dupli < params$max_prop_for_wt, 0, 
+                      NA))
       chr_loss <-
         sce@colData[, paste0("proportion_loss_", chr)]
       sce@colData[, paste0(chr, '_loss')] <<-
-        ifelse(chr_loss > 0.8, 1, ifelse(chr_loss < 0.5, 0, NA))
+        ifelse(chr_loss > params$min_prop_for_cnv, 1, 
+               ifelse(chr_loss < params$max_prop_for_wt, 0, 
+                      NA))
     })
   
   # return
@@ -428,14 +434,15 @@ events <-
       TRUE ~ NA)) %>%
   dplyr::summarise(
     events = paste(sort(unique(na.omit(event))), collapse = ','),
-    n_gains = sum(value, na.rm = T))
+    n_events = sum(value, na.rm = T))
 
 p_dat <-
   events %>%
   dplyr::ungroup() %>%
   dplyr::add_count(events) %>%
   dplyr::mutate(prop = n / dplyr::n()) %>%
-  dplyr::filter(events != 'WT') %>%
+  # ignore events that happen in <10 cells
+  dplyr::filter(events != 'WT', n >= 10) %>%
   dplyr::mutate(
     events = events %>% 
       gsub('chr', '', .) %>% 
@@ -453,21 +460,23 @@ p_dat %>%
   geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
   scale_x_discrete(guide = guide_axis(angle = -90)) +
   ylim(c(0, max(p_dat$n) * 1.1)) +
-  theme_classic()
+  theme_classic() +
+  theme(legend.position = 'bottom')
 p_dat %>%
   ggplot(aes(x = forcats::fct_infreq(events), fill = sample, label = label)) +
   geom_bar() +
   geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
   scale_x_discrete(guide = guide_axis(angle = -90)) +
   ylim(c(0, max(p_dat$n) * 1.1)) +
-  theme_classic()
+  theme_classic() +
+  theme(legend.position = 'none')
 ```
 
 # Pseudobulking and DGEA
 
 We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows a [tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html) and the [glmGamPoi GitHub](https://github.com/const-ae/glmGamPoi).
 
-We will define chr7+ cells as those with >80% of genes affected by duplication and chr7 WT cells as those with <20% of genes affected. We will pseudobulk by patient, cell group, and chr7 ploidy to produce a reduced object.
+We will pseudobulk by patient, cell group, and chr7 ploidy to produce a reduced object.
 
 ```{r chr7_gain_prop, results = 'asis'}
 dat <-
