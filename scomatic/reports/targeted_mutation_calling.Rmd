@@ -1,0 +1,67 @@
+---
+title: "Targeted interrogation of mutational hotspots in rheumatoid arthritis"
+author: "Alexandra Tidd"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    fig_width: 8
+    keep_md: false
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 4
+    theme: lumen
+params:
+  hotspots: NULL
+  ref_cds: NULL
+  cache_dir: './driver_coverage_cache/'
+  rerun: true
+---
+
+```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
+# wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
+# rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  dpi = 300, 
+  cache.path = params$cache_dir) 
+
+# libraries
+library(magrittr)
+library(ggplot2)
+library(GenomicRanges)
+
+# dev.off() if there is a device
+dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
+```
+
+# Mutational calls in drivers from the LCM-WES data
+
+```{r mut_hotspots}
+#params<-list(drivers = 'data/driver_genes/driver_gene_coords_for_coverage.bed',hotspots='/lustre/scratch125/casm/team268im/lh22/synovium_nanoseq/ex_t_dndsout/exome/All_dnds_annot_muts.tsv')
+drivers <-
+  readr::read_tsv(params$drivers, col_names = c('chr', 'start', 'end', 'gene')) %>%
+  dplyr::mutate(chr = gsub('chr', '', chr))
+hotspots <-
+  readr::read_tsv(params$hotspots)
+gr <-
+  GRanges(seqnames = drivers$chr,
+          ranges = IRanges(start = drivers$start,
+                           end = drivers$end))
+```
+
+# BAMs from snRNA-seq data
+
+We read in reads in the driver regions 
+
+```{r scanbam}
+bam_path <-
+  '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/BRI_401/celltype_bams/BRI_401.B_cell_plasma_cell.bam'
+bam_file <- Rsamtools::BamFile(bam_path)
+bam_params <- 
+  Rsamtools::ScanBamParam(which = gr, what = Rsamtools::scanBamWhat())
+bam <- Rsamtools::scanBam(bam_file, param = bam_params)
+```
