@@ -125,3 +125,33 @@ ref_cds <-
 # save 
 ref_cds %>%
   saveRDS('data/dndscv/ref_cds.rds')
+
+# get mutation hotspots from LCM-WES ----
+
+# load data
+hotspots <-
+  '/lustre/scratch125/casm/team268im/lh22/synovium_nanoseq/ex_t_dndsout/exome/All_dnds_annot_muts.tsv' %>%
+  readr::read_tsv() %>%
+  dplyr::mutate(chr = paste0('chr', chr)) %>%
+  dplyr::rename(pos_GRCh37 = pos) %>%
+  dplyr::mutate(driver = gene %in% drivers_pos$gene)
+
+# load liftOver output (GRCh37 -> GRCh38 in UCSC LiftOver)
+lo <-
+  'data/driver_genes/All_dnds_annot_muts_coords_hglft_hg38.tsv' %>%
+  readr::read_tsv(col_names = c('chr', 'start_GRCh38', 'end_GRCh38', 'coords_GRCh37', 'x')) %>%
+  tidyr::separate_wider_delim(coords_GRCh37, names = c('chr_GRCh37', 'start_GRCh37', 'pos_GRCh37'), delim = stringr::regex(':|-')) %>%
+  type.convert(as.is = T) %>%
+  dplyr::select(chr, pos_GRCh37, pos = end_GRCh38) %>%
+  dplyr::distinct()
+
+# lift over mutations (3 positions are lost because they were deleted in the new build)
+hotspots <-
+  hotspots %>%
+  dplyr::left_join(lo) %>%
+  dplyr::select(sampleID, chr, pos, everything())
+
+# save
+hotspots %>%
+  readr::write_tsv('data/driver_genes/lcm_wes_mutations.tsv')
+
