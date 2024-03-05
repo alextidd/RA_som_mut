@@ -14,6 +14,7 @@ output:
     theme: lumen
 params:
   drivers: NULL
+  mutations: NULL
   ref_cds: NULL
   cache_dir: './driver_coverage_cache/'
   rerun: true
@@ -83,9 +84,15 @@ cov <- xfun::cache_rds({
   cov
   
 }, file = 'cov.rds', rerun = params$rerun)
+
+# read in driver mutations from LCM-WES
+muts <-
+  readr::read_tsv(params$mutations)
 ```
 
-We also load the `BSgenome` and `TxDb` objects.
+# GenVisR plots
+
+We load the `BSgenome` and `TxDb` objects.
 
 ```{r bsgenome}
 # BSgenome
@@ -100,6 +107,7 @@ txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
 Then we plot the coverage.
 
 ```{r gencov}
+# function: use gencov
 plot_cov <- function(cov, gene, var, expand_features_of_interest = T) {
   
   # split by variable(s)
@@ -137,17 +145,20 @@ plot_cov <- function(cov, gene, var, expand_features_of_interest = T) {
   
 }
 
-plot_cov(cov, 'ARID2', 'celltype') 
-plot_cov(cov, 'ARID2', 'celltype', F)
-plot_cov(cov, 'ARID2', 'id')
-plot_cov(cov, 'ARID2', 'id', F)
+# plot
+names(cov) %>%
+  purrr::walk(~ plot_cov(cov, .x, 'celltype') %>% print())
+names(cov) %>%
+  purrr::walk(~ plot_cov(cov, .x, 'celltype', F) %>% print())
+names(cov) %>%
+  purrr::walk(~ plot_cov(cov, .x, 'id') %>% print())
+names(cov) %>%
+  purrr::walk(~ plot_cov(cov, .x, 'id', F) %>% print())  
 ```
 
-```{r exit}
-knitr::knit_exit()
-```
+# My plots
 
-### Annotate exons and introns
+## Annotate exons and introns
 
 We use the reference object from DNDSCV to delimit intronic and exonic regions of the genes.
 
@@ -193,6 +204,8 @@ cov <- xfun::cache_rds({
   
 }, file = 'cov_w_features.rds', rerun = params$rerun)
 ```
+
+## Plot driver coverages
 
 ```{r plots}
 # get exon coords for plotting
@@ -363,6 +376,14 @@ dev_off_if()
 # evaluate chunks
 cat(unlist(chunks), sep = '\n')
 ```
+
+## Mean_coverage
+
+```{r exit}
+knitr::knit_exit()
+```
+
+
 
 ```{r mean_coverage, eval = F}
 cov %>%

@@ -6,6 +6,9 @@ params.mappings = null
 params.celltypes = null
 // We expect the mappings to be on irods by default
 params.location = "irods"
+// Optionally subset the BAMs before filtering with a BED file
+// Make sure the 'chr' conventions match (ie. chr1 or 1)!
+params.subset_bed = null
 // The genotyping pipeline will specify an scomatic mutations folder
 params.mutations = null
 // Publish the celltype-split BAMs to the celltype_bams/ subdirectory? 
@@ -19,6 +22,7 @@ params.n_trim = 5             //  number of bases trimmed from beginning and end
 // -> BaseCellCounter.py
 params.min_dp = 5             //  minimum depth
 params.min_cc = 5             //  minimum number of cells required to consider a genomic site
+params.min_bq = 30
 // -> BaseCellCaling.step1.py
 params.max_cell_types = 1     //  maximum number of cell types carrying the mutation
 // Output directory
@@ -50,7 +54,6 @@ process irods {
 // Symlink the BAM/BAI appropriately so they're named the right thing for downstream
 process local {
     label "normal4core"
-    errorStrategy = {task.attempt <= 1 ? 'retry' : 'ignore'}
     input:
         tuple val(sample), path(local), val(bam), val(donor)
     output:
@@ -81,6 +84,21 @@ process getSampleCelltypes {
         head -n 1 ${celltypes} > ${sample}-celltypes.tsv
         grep "^${sample}" ${celltypes} >> ${sample}-celltypes.tsv
         """
+}
+
+// Optionally subset BAMs based on a BED file of coords
+process subset_bams {
+  label 'normal4core'
+  input:
+    tuple val(sample), val(donor), path(bam), path(bai), path(celltypes)
+  output:
+    tuple val(sample), val(donor), path("subset/*.bam"), path("subset/*.bam.bai"), path("${sample}-celltypes.tsv")
+  script:
+    """
+    mkdir subset/
+    samtools view -b -h -L ${params.subset_bed} ${bam} > subset/${sample}.bam
+    (cd subset ; samtools index -@ ${task.cpus} ${sample}.bam)
+    """
 }
 
 // Step one of scomatic - split the BAM into per cell type BAMs
@@ -166,7 +184,7 @@ process bamToTsv {
           --ref ${fasta} \
           --chrom all \
           --out_folder output \
-          --min_bq 30 \
+          --min_bq ${params.min_bq} \
           --min_mq ${params.min_MQ} \
           --min_cc ${params.min_cc} \
           --min_dp ${params.min_dp} \
@@ -308,7 +326,7 @@ process callableSitesCell {
         python3 ${params.scomatic}/SitesPerCell/SitesPerCell.py --bam ${bam} \
             --infile ${tsv} \
             --ref ${fasta} \
-            --min_bq 30 \
+            --min_bq ${params.min_bq} \
             --min_mq ${params.min_MQ} \
             --tmp_dir temp \
             --bin 1000000 \
@@ -336,7 +354,7 @@ process bamToGenotype {
             --infile ${mutations}/${donor}/${donor}.calling.step2.intersect.tsv \
             --meta ${allcelltypes} \
             --outfile ${donor}.${celltype}.single_cell_genotype.tsv \
-            --min_bq 30 \
+            --min_bq ${params.min_bq} \
             --min_mq ${params.min_MQ} \
             --tmp_dir temp \
             --bin 1000000 \
@@ -417,8 +435,15 @@ workflow STEP1 {
         // Join the cell type file with the BAM/BAI list from earlier
         sampleBamsCelltypes = sampleBams.join(sampleCelltypes)
         
+        // optional pre-processing step: subset bams to regions of interest
+        if (params.subset_bed == null) {
+          bams_to_split = sampleBamsCelltypes
+        } else {
+          bams_to_split = subset_bams(sampleBamsCelltypes)
+        }
+        
         // Step one of scomatic - split the BAMs to cell types on a per sample basis
-        sampleFiles = splitBams(sampleBamsCelltypes)
+        sampleFiles = splitBams(bams_to_split)
         // This outputs a "list of lists" of BAMs/BAIs, constructed for each sample
         // Flatten the files into a single list, and then index them as 
         // sample.donor.celltype

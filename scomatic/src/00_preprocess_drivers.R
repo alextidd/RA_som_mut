@@ -94,10 +94,10 @@ drivers_pos <-
   # remove weird chromosomes
   dplyr::filter(chr %in% c(as.character(1:22, 'X', 'Y')))
 
-# save bed
+# save driver bed
 drivers_pos %>%
   dplyr::transmute(
-    paste0('chr', chr), start, end, gene
+    chr, start, end, gene
   ) %>%
   readr::write_tsv('data/driver_genes/driver_gene_coords_for_coverage.bed',
                    col_names = F)
@@ -134,7 +134,7 @@ hotspots <-
   readr::read_tsv() %>%
   dplyr::mutate(chr = paste0('chr', chr)) %>%
   dplyr::rename(pos_GRCh37 = pos) %>%
-  dplyr::mutate(driver = gene %in% drivers_pos$gene)
+  dplyr::filter(gene %in% drivers_pos$gene)
 
 # load liftOver output (GRCh37 -> GRCh38 in UCSC LiftOver)
 lo <-
@@ -148,8 +148,8 @@ lo <-
 # lift over mutations (3 positions are lost because they were deleted in the new build)
 hotspots <-
   hotspots %>%
-  dplyr::left_join(lo) %>%
-  dplyr::select(sampleID, chr, pos, everything())
+  dplyr::inner_join(lo) %>%
+  dplyr::select(id = sampleID, chr, pos, everything())
 
 # save
 hotspots %>%

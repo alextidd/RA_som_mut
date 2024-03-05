@@ -13,7 +13,7 @@ mkdir -p work/ out/Zhang2023/default_thresholds/ log/
 . ~/.bashrc
 mamba activate jupy
 
-# run scomatic
+# run scomatic on drivers
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     --projectDir $PWD \
     --max_nM 1000000 \
@@ -23,23 +23,25 @@ mamba activate jupy
     --min_dp 1 \
     --min_cc 1 \
     --max_cell_types 1000000 \
-    --output_dir '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/no_thresholds/' \
+    --output_dir $wd/out/Zhang2023/no_thresholds/ \
+    --cleanup false \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
-    -c $config_dir/LSF.config \
+    -c config/LSF.config \
     -w work/ \
     --location local \
     -resume
+#    --subset_bed $wd/data/driver_genes/driver_gene_coords_for_coverage.bed \
 
-# get single cell genotypes
-/software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
-    -entry genotypes \
-    --projectDir $PWD \
-    --min_dp 1 \
-    --output_dir '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/no_thresholds/' \
-    -params-file $config_dir/GEX.json \
-    -c config/Zhang2023.config \
-    -c $config_dir/LSF.config \
-    -w work/ \
-    --location local \
-    -resume
+# # get single cell genotypes
+# /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
+#     -entry genotypes \
+#     --projectDir $PWD \
+#     --min_dp 1 \
+#     --output_dir '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/no_thresholds/' \
+#     -params-file $config_dir/GEX.json \
+#     -c config/Zhang2023.config \
+#     -c $config_dir/LSF.config \
+#     -w work/ \
+#     --location local \
+#     -resume

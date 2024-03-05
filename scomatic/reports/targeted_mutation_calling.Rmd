@@ -13,9 +13,10 @@ output:
     toc_depth: 4
     theme: lumen
 params:
+  drivers: NULL
   hotspots: NULL
-  ref_cds: NULL
-  cache_dir: './driver_coverage_cache/'
+  bam_mappings: NULL
+  cache_dir: './target_mutation_calling_cache/'
   rerun: true
 ---
 
@@ -23,6 +24,8 @@ params:
 # wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
 # rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
 
+# chunk options
+knitr::opts_knit$set(root.dir = '../')
 knitr::opts_chunk$set(
   warning = FALSE,
   message = FALSE,
@@ -41,27 +44,149 @@ dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 # Mutational calls in drivers from the LCM-WES data
 
 ```{r mut_hotspots}
-#params<-list(drivers = 'data/driver_genes/driver_gene_coords_for_coverage.bed',hotspots='/lustre/scratch125/casm/team268im/lh22/synovium_nanoseq/ex_t_dndsout/exome/All_dnds_annot_muts.tsv')
+# read in bam mappings, get celltype-split bams only
+mappings <-
+  readr::read_csv(params$bam_mappings) %>%
+  dplyr::filter(!is.na(celltype))
+
+# read in drivers
 drivers <-
   readr::read_tsv(params$drivers, col_names = c('chr', 'start', 'end', 'gene')) %>%
   dplyr::mutate(chr = gsub('chr', '', chr))
+
+# read in mutations in drivers
 hotspots <-
-  readr::read_tsv(params$hotspots)
-gr <-
-  GRanges(seqnames = drivers$chr,
-          ranges = IRanges(start = drivers$start,
-                           end = drivers$end))
+  readr::read_tsv(params$hotspots) %>%
+  dplyr::mutate(mut_pos = pos,
+                chr = gsub('chr', '', chr)) %>%
+  dplyr::group_by(chr, mut_pos, gene, ref_cod) %>%
+  # summarise each position
+  dplyr::summarise(n = dplyr::n(),
+                   id = paste(id, collapse = ','),
+                   mut_cod = paste(mut_cod, collapse = ','),
+                   impact = paste(impact, collapse = ',')) %>% 
+  dplyr::group_by(dplyr::across(everything())) %>%
+  # extend pileup window 20bp either side of mutated position
+  dplyr::reframe(pos = (mut_pos - 20):(mut_pos + 20)) 
+
+# save as a bed
+hotspots %>%
+  dplyr::transmute(chr = paste0('chr', chr), start = pos - 1, end = pos) %>%
+  readr::write_tsv(
+    'data/driver_genes/lcm_wes_mutations_20bp_window.bed',
+    col_names = F)
+
+# get ref allele at each position
+refs <- xfun::cache_rds({
+  refs <-
+    system('bedtools getfasta -fi /lustre/scratch125/casm/team268im/al28/bed_ref/GRCh38_full_analysis_set_plus_decoy_hla_genome.fa -bed data/driver_genes/lcm_wes_mutations_20bp_window.bed -tab', intern = T) %>%
+    paste(collapse = '\n') %>%
+    readr::read_tsv(col_names = c('pos', 'ref')) %>%
+    tidyr::separate_wider_delim(cols = pos, delim = stringr::regex(':|-'), names = c('chr', 'start', 'end')) %>%
+    type.convert(as.is = T) %>%
+    dplyr::transmute(chr = gsub('chr', '', chr), pos = end, ref) %>%
+    dplyr::distinct()
+  refs
+}, file = 'refs.rds', rerun = params$rerun)
 ```
 
-# BAMs from snRNA-seq data
+# Pileup of BAMs from snRNA-seq data
 
-We read in reads in the driver regions 
+```{r pileup}
+# bam2r filtering arguments
+min_phred <- 30
+sam_flag <- 3844
+mapq <- 25
+nucleotides <- c("A", "T", "C", "G", "-", "INS", "a", "t", "c", "g", "_", "ins")
 
-```{r scanbam}
-bam_path <-
-  '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/BRI_401/celltype_bams/BRI_401.B_cell_plasma_cell.bam'
-bam_file <- Rsamtools::BamFile(bam_path)
-bam_params <- 
-  Rsamtools::ScanBamParam(which = gr, what = Rsamtools::scanBamWhat())
-bam <- Rsamtools::scanBam(bam_file, param = bam_params)
+# list of id - ct - bam
+bams <-
+  mappings %>%
+  {split(., .$id)} %>%
+  purrr::map(function(df) {split(df$bam, df$celltype)})
+
+# get bases at sites
+sites <- xfun::cache_rds({
+  
+  sites <-
+    bams %>% 
+    purrr::map(function(id) {
+      id %>% 
+        purrr::map(function(ct_bam) {
+          
+          hotspots %>%
+            purrr::pmap(function(chr, pos, mut_pos, gene, ...) {
+              deepSNV::bam2R(
+                ct_bam,
+                chr = chr,
+                start = pos,
+                stop = pos,
+                q = min_phred,
+                mask = sam_flag,
+                mq = mapq) %>%
+                tibble::as_tibble() %>%
+                dplyr::mutate(chr = chr, pos = pos, mut_pos = mut_pos, gene = gene) %>%
+                dplyr::select(chr, pos, mut_pos, gene, dplyr::all_of(nucleotides))
+            }) %>%
+            dplyr::bind_rows() %>%
+            dplyr::rowwise() %>%
+            dplyr::mutate(
+              total = sum(dplyr::across(dplyr::all_of(nucleotides)))) %>%
+            dplyr::relocate(dplyr::all_of(nucleotides), .after = dplyr::last_col())
+          
+        }) %>% dplyr::bind_rows(.id = 'celltype')
+    }) %>% dplyr::bind_rows(.id = 'id')
+  
+  # return
+  sites
+  
+}, file = 'sites.rds', rerun = params$rerun)
+
+# add refs, compare
+muts <-
+  sites %>%
+  dplyr::left_join(refs) %>%
+  tidyr::pivot_longer(cols = dplyr::all_of(nucleotides),
+                      values_to = 'nt_n_reads', names_to = 'nt') %>%
+  # # ignore indels for now
+  # dplyr::filter(!nt %in% c('-', '_', 'INS', 'ins')) %>%
+  # get number of ref and non-ref alleles at each position
+  dplyr::mutate(n_ref = ifelse(ref == toupper(nt), nt_n_reads, 0),
+                n_non_ref = ifelse(ref != toupper(nt), nt_n_reads, 0)) %>%
+  dplyr::group_by(id, celltype, chr, pos, mut_pos, gene, total, ref) %>%
+  dplyr::summarise(n_ref = sum(n_ref), n_non_ref = sum(n_non_ref)) %>%
+  dplyr::mutate(vaf = n_non_ref / total)
+
+# plot positions
+unique(sites$gene) %>%
+  purrr::walk(function(i) {
+    p <-
+      sites %>%
+      dplyr::filter(gene == i) %>%
+      dplyr::left_join(refs, by = c('chr', 'pos')) %>%
+      tidyr::pivot_longer(cols = dplyr::all_of(nucleotides),
+                          values_to = 'nt_n_reads', names_to = 'nt') %>%
+      dplyr::mutate(
+        strandless_nt = 
+          ifelse(nt %in% c('-', '_'), 'DEL', toupper(nt)),
+        is_ref = ifelse(strandless_nt == ref, 'ref', 'alt'),
+        strandless_nt = paste0(strandless_nt, '_', is_ref) %>% 
+          forcats::fct_relevel(unique(c(paste0(topupper(nucleotides), '_ref'),
+                                        paste0(toupper(nucleotides), '_alt'))))) %>%
+      ggplot(aes(x = pos, y = nt_n_reads, fill = strandless_nt)) + 
+      geom_vline(aes(xintercept = mut_pos)) +
+      geom_col(position = 'stack') +
+      theme_bw() +
+      theme(axis.text.x = element_blank()) +
+      ggh4x::facet_grid2(celltype ~ mut_pos, scales = 'free_x') +
+      scale_fill_manual(values = c(A_ref = 'darkgreen', A_alt = 'lightgreen',
+                                   C_ref = 'darkblue', C_alt = 'lightblue',
+                                   G_ref = 'darkorange3', G_alt = 'peachpuff',
+                                   T_ref = 'darkred', T_alt = 'salmon',
+                                   INS_alt = 'black', DEL_alt = 'grey')) +
+      ggtitle(i)
+    print(p)
+    })
 ```
+
+

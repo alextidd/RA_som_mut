@@ -4,6 +4,7 @@ nextflow.enable.dsl=2
 params.help       = false
 params.mappings   = null
 params.drivers    = null
+params.mutations  = null
 params.out_dir    = 'out/'
 params.location   = 'irods'
 params.min_MQ     = 30
@@ -20,6 +21,8 @@ if (params.help) {
   |   --drivers     Path to the drivers TSV file with columns `gene` and `coords`.
   |                 Coords must be in the format 'chr:start-stop' 
   |                 (e.g. 1:12345-12456).
+  |   --mutations   Path to the mutations TSV file with columns `chr`, `pos`, 
+  |                 and `gene`.
   |
   |Optional arguments:
   |   --out_dir     Path to the output directory. default is `out/`.
