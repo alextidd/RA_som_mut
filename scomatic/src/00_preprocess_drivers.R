@@ -151,6 +151,9 @@ hotspots <-
   dplyr::inner_join(lo) %>%
   dplyr::select(id = sampleID, chr, pos, everything())
 
+# # dndscv
+# dndsout <- dndscv(muts, max_muts_per_gene_per_sample = Inf, max_coding_muts_per_sample = Inf)
+
 # save
 hotspots %>%
   readr::write_tsv('data/driver_genes/lcm_wes_mutations.tsv')

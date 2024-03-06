@@ -9,13 +9,13 @@ cd $wd
 . ~/.bashrc
 mamba activate jupy
 
-# # knit by_fibroblast_cluster, < 0.5 | > 0.8
-# mkdir -p out/Zhang2023/by_fibroblast_cluster/summary/
-# Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/Fibroblast_sce.rds', cell_group_name = 'cluster_name', infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_fibroblast_cluster/summary/gains_and_losses_cache/', rerun = F), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_fibroblast_cluster/summary/')"
+# knit by_fibroblast_cluster, < 0.5 | > 0.8
+mkdir -p out/Zhang2023/by_fibroblast_cluster/summary/
+Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/Fibroblast_sce.rds', cell_group_name = 'cluster_name', infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_fibroblast_cluster/summary/gains_and_losses_cache/', rerun = F), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_fibroblast_cluster/summary/')"
 
-# knit by_fibroblast_cluster, < 0.2 | > 0.8
-mkdir -p out/Zhang2023/by_fibroblast_cluster_0.2/summary/
-Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/Fibroblast_sce.rds', cell_group_name = 'cluster_name', infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_fibroblast_cluster_0.2/summary/gains_and_losses_cache/', rerun = T, max_prop_for_wt = 0.2), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_fibroblast_cluster_0.2/summary/')"
+# # knit by_fibroblast_cluster, < 0.2 | > 0.8
+# mkdir -p out/Zhang2023/by_fibroblast_cluster_0.2/summary/
+# Rscript -e "rmarkdown::render('reports/gains_and_losses.Rmd', params = list(sce = 'data/Zhang2023/sce/Fibroblast_sce.rds', cell_group_name = 'cluster_name', infercnv_dir = 'out/Zhang2023/by_stromal_cluster/', cache_dir = 'out/Zhang2023/by_fibroblast_cluster_0.2/summary/gains_and_losses_cache/', rerun = T, max_prop_for_wt = 0.2), output_file = 'gains_and_losses.html', output_dir = 'out/Zhang2023/by_fibroblast_cluster_0.2/summary/')"
 
 # # knit by_stromal_cluster
 # mkdir -p out/Zhang2023/by_stromal_cluster/summary/

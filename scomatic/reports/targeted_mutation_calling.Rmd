@@ -47,7 +47,9 @@ dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 # read in bam mappings, get celltype-split bams only
 mappings <-
   readr::read_csv(params$bam_mappings) %>%
-  dplyr::filter(!is.na(celltype))
+  dplyr::filter(!is.na(celltype)) %>%
+  # temporarily remove problematic BRI-401 endo bam
+  dplyr::filter(!(id == 'BRI_401' & celltype == 'Endothelial_cell'))
 
 # read in drivers
 drivers <-
@@ -82,7 +84,8 @@ refs <- xfun::cache_rds({
     system('bedtools getfasta -fi /lustre/scratch125/casm/team268im/al28/bed_ref/GRCh38_full_analysis_set_plus_decoy_hla_genome.fa -bed data/driver_genes/lcm_wes_mutations_20bp_window.bed -tab', intern = T) %>%
     paste(collapse = '\n') %>%
     readr::read_tsv(col_names = c('pos', 'ref')) %>%
-    tidyr::separate_wider_delim(cols = pos, delim = stringr::regex(':|-'), names = c('chr', 'start', 'end')) %>%
+    tidyr::separate_wider_delim(cols = pos, delim = stringr::regex(':|-'), 
+                                names = c('chr', 'start', 'end')) %>%
     type.convert(as.is = T) %>%
     dplyr::transmute(chr = gsub('chr', '', chr), pos = end, ref) %>%
     dplyr::distinct()
@@ -148,15 +151,15 @@ muts <-
   dplyr::left_join(refs) %>%
   tidyr::pivot_longer(cols = dplyr::all_of(nucleotides),
                       values_to = 'nt_n_reads', names_to = 'nt') %>%
-  # # ignore indels for now
-  # dplyr::filter(!nt %in% c('-', '_', 'INS', 'ins')) %>%
   # get number of ref and non-ref alleles at each position
   dplyr::mutate(n_ref = ifelse(ref == toupper(nt), nt_n_reads, 0),
                 n_non_ref = ifelse(ref != toupper(nt), nt_n_reads, 0)) %>%
   dplyr::group_by(id, celltype, chr, pos, mut_pos, gene, total, ref) %>%
   dplyr::summarise(n_ref = sum(n_ref), n_non_ref = sum(n_non_ref)) %>%
   dplyr::mutate(vaf = n_non_ref / total)
+```
 
+```{r plot}
 # plot positions
 unique(sites$gene) %>%
   purrr::walk(function(i) {
@@ -178,7 +181,7 @@ unique(sites$gene) %>%
       geom_col(position = 'stack') +
       theme_bw() +
       theme(axis.text.x = element_blank()) +
-      ggh4x::facet_grid2(celltype ~ mut_pos, scales = 'free_x') +
+      ggh4x::facet_grid2(celltype ~ mut_pos, scales = 'free') +
       scale_fill_manual(values = c(A_ref = 'darkgreen', A_alt = 'lightgreen',
                                    C_ref = 'darkblue', C_alt = 'lightblue',
                                    G_ref = 'darkorange3', G_alt = 'peachpuff',

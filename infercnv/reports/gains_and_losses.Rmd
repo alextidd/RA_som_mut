@@ -416,7 +416,7 @@ sce <- xfun::cache_rds({
 
 We also can observe the rate coincidence of chr7 and other gains. The LCM-WES data suggested a nested relationship in which there were chr5+ subclones within chr7+ populations. We look for this here.
 
-```{r chr7_and_chr5}
+```{r chr7_and_others}
 events <-
   sce@colData %>%
   tibble::as_tibble() %>%
@@ -441,35 +441,84 @@ p_dat <-
   dplyr::ungroup() %>%
   dplyr::add_count(events) %>%
   dplyr::mutate(prop = n / dplyr::n()) %>%
-  # ignore events that happen in <10 cells
-  dplyr::filter(events != 'WT', n >= 10) %>%
+  # ignore events that happen in <= 25 cells
+  dplyr::filter(events != 'WT', n >= 25) %>%
   dplyr::mutate(
     events = events %>% 
       gsub('chr', '', .) %>% 
       gsub('_gain', '+', .) %>%
-      gsub('_loss', '+', .),
+      gsub('_loss', '-', .),
     events = forcats::fct_infreq(events),
     label1 = scales::label_comma()(n), 
     label = dplyr::case_when(
       n < 10 ~ label1,
       TRUE ~ paste0(label1, ' (', round(prop*100, 2), '%)')
     ))
-p_dat %>%
-  ggplot(aes(x = events, fill = cell_group, label = label)) +
-  geom_bar() +
-  geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
+
+# plot
+p <-
+  p_dat %>%
+  ggplot(aes(x = events)) +
+  geom_text(aes(y = n + 50,  label = label), 
+            vjust = 0.5, hjust = 0, angle = 90, size = 2) +
   scale_x_discrete(guide = guide_axis(angle = -90)) +
   ylim(c(0, max(p_dat$n) * 1.1)) +
   theme_classic() +
   theme(legend.position = 'bottom')
-p_dat %>%
-  ggplot(aes(x = forcats::fct_infreq(events), fill = sample, label = label)) +
-  geom_bar() +
-  geom_text(aes(y = n), hjust = 0, vjust = -0.1, angle = 45, size = 2) +
-  scale_x_discrete(guide = guide_axis(angle = -90)) +
-  ylim(c(0, max(p_dat$n) * 1.1)) +
-  theme_classic() +
+p + 
+  geom_bar(aes(fill = sample))
+p + 
+  geom_bar(aes(fill = cell_group)) +
   theme(legend.position = 'none')
+```
+
+We also can run a Fisher exact test to test whether chr7+ and chr5+ gains co-occur more often than would be expected by chance, and also test all other co-occurences.
+
+```{r cont_tab}
+cont <-
+  sce@colData %>%
+  tibble::as_tibble() %>%
+  dplyr::mutate(chr7 = ifelse(chr7_gain == 1, 'chr7+', 'chr7_WT'),
+                chr5 = ifelse(chr5_gain == 1, 'chr5+', 'chr5_WT')) 
+table(cont$chr7, cont$chr5) %>%
+  knitr::kable()
+```
+
+```{r fisher_exact}
+chisq <- xfun::cache_rds({
+  
+  chisq <-
+    colnames(sce@colData)[grepl('_gain$|_loss$', colnames(sce@colData))] %>%
+    purrr::set_names() %>%
+    purrr::map(function(event) {
+      
+      if (1 %in% cont[, event, drop = T]) {
+        
+        # run chi-squared test
+        chisq <- chisq.test(sce@colData[, 'chr7_gain', drop = T], 
+                            sce@colData[, event, drop = T])
+        
+         # return relevant stats
+        tibble::tibble(
+          X_squared = chisq$statistic, 
+          p = chisq$p.value, 
+          df = chisq$parameter['df'])
+        
+      } 
+      
+    }) %>%
+    dplyr::bind_rows(.id = 'event') %>%
+    # remove chr7+
+    dplyr::filter(event != 'chr7_gain') %>%
+    dplyr::arrange(p)
+  
+  # return
+  chisq
+  
+}, file = 'chisq.rds', rerun = params$rerun)
+
+chisq %>%
+  knitr::kable()
 ```
 
 # Pseudobulking and DGEA

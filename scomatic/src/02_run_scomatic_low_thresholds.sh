@@ -16,6 +16,7 @@ mamba activate jupy
 # run scomatic on drivers
 /software/team205/nextflow-23.04.1-all run nextflow/scomatic.nf \
     --projectDir $PWD \
+    --publish_celltype_bams true \
     --max_nM 1000000 \
     --max_NH 1000000 \
     --min_MQ 0 \
@@ -24,7 +25,6 @@ mamba activate jupy
     --min_cc 1 \
     --max_cell_types 1000000 \
     --output_dir $wd/out/Zhang2023/no_thresholds/ \
-    --cleanup false \
     -params-file $config_dir/GEX.json \
     -c config/Zhang2023.config \
     -c config/LSF.config \

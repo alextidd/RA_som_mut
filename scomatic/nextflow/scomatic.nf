@@ -179,8 +179,7 @@ process bamToTsv {
         """
         mkdir -p temp
         mkdir -p output
-        python3 ${params.scomatic}/BaseCellCounter/BaseCellCounter.py \
-          --bam ${bam} \
+        python3 ${params.scomatic}/BaseCellCounter/BaseCellCounter.py --bam ${bam} \
           --ref ${fasta} \
           --chrom all \
           --out_folder output \
