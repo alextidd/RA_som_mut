@@ -485,39 +485,44 @@ table(cont$chr7, cont$chr5) %>%
 ```
 
 ```{r fisher_exact}
-chisq <- xfun::cache_rds({
+fisher <- xfun::cache_rds({
   
-  chisq <-
+  fisher <-
     colnames(sce@colData)[grepl('_gain$|_loss$', colnames(sce@colData))] %>%
     purrr::set_names() %>%
     purrr::map(function(event) {
       
-      if (1 %in% cont[, event, drop = T]) {
+      event_vec <- sce@colData[, event, drop = T]
+      
+      if (1 %in% event_vec) {
         
-        # run chi-squared test
-        chisq <- chisq.test(sce@colData[, 'chr7_gain', drop = T], 
-                            sce@colData[, event, drop = T])
+        # run fisher exact test
+        fisher <- fisher.test(sce$chr7_gain, event_vec)
         
          # return relevant stats
         tibble::tibble(
-          X_squared = chisq$statistic, 
-          p = chisq$p.value, 
-          df = chisq$parameter['df'])
+          OR = fisher$estimate, 
+          p = fisher$p.value)
         
-      } 
+      } else {
+        
+        # no event
+        tibble::tibble(OR = NA, p = NA)
+        
+      }
       
     }) %>%
     dplyr::bind_rows(.id = 'event') %>%
-    # remove chr7+
+    # remove chr7+ (can't do chr7+ vs chr7+)
     dplyr::filter(event != 'chr7_gain') %>%
-    dplyr::arrange(p)
+    dplyr::arrange(-OR)
   
   # return
-  chisq
+  fisher
   
-}, file = 'chisq.rds', rerun = params$rerun)
+}, file = 'fisher.rds', rerun = params$rerun)
 
-chisq %>%
+fisher %>%
   knitr::kable()
 ```
 
