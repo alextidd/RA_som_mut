@@ -44,10 +44,25 @@ mamba activate jupy
 #     -w test/work/ \
 #     -resume
 
-# knit target_mutation_calling.Rmd
-mkdir out/Zhang2023/coverage/summary/
-Rscript -e "rmarkdown::render('reports/targeted_mutation_calling.Rmd', params = list(drivers = 'data/driver_genes/driver_gene_coords_for_coverage.bed', hotspots = 'data/driver_genes/lcm_wes_mutations.tsv', bam_mappings = 'out/Zhang2023/coverage/mappings.csv', rerun = F, cache_dir = 'out/Zhang2023/coverage/summary/targeted_mutation_calling_cache/'), output_file = 'targeted_mutation_calling.html', output_dir = 'out/Zhang2023/coverage/summary/')"
+# # knit target_mutation_calling.Rmd
+# mkdir out/Zhang2023/coverage/summary/
+# Rscript -e "rmarkdown::render('reports/targeted_mutation_calling.Rmd', params = list(drivers = 'data/driver_genes/driver_gene_coords_for_coverage.bed', hotspots = 'data/driver_genes/lcm_wes_mutations.tsv', bam_mappings = 'out/Zhang2023/coverage/mappings.csv', rerun = F, cache_dir = 'out/Zhang2023/coverage/summary/targeted_mutation_calling_cache/'), output_file = 'targeted_mutation_calling.html', output_dir = 'out/Zhang2023/coverage/summary/')"
 
+# run target_mutation_calling.nf on celltype bams only
+out_dir=${wd}out/Zhang2023/targeted_mutation_calling/
+mkdir -p $out_dir
+
+# get mappings of celltype-specific bams only
+cat ${wd}out/Zhang2023/coverage/mappings.csv | 
+awk -F',' -v OFS=',' '$3 != "NA" {print}' \
+> ${out_dir}/mappings.csv
+
+# run
+/software/team205/nextflow-23.04.1-all run nextflow/targeted_mutation_calling.nf \
+  --mappings ${out_dir}/mappings.csv \
+  --out_dir ${out_dir} \
+  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config \
+  -w work/  #-resume
 
 # # run test
 # # head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv
