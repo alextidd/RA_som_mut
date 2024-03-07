@@ -60,9 +60,10 @@ awk -F',' -v OFS=',' '$3 != "NA" {print}' \
 # run
 /software/team205/nextflow-23.04.1-all run nextflow/targeted_mutation_calling.nf \
   --mappings ${out_dir}/mappings.csv \
+  --window 1 \
   --out_dir ${out_dir} \
   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config \
-  -w work/  #-resume
+  -w work/ 
 
 # # run test
 # # head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv

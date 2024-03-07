@@ -255,7 +255,7 @@ process get_reads {
       # get number of ref and non-ref alleles at each position
       dplyr::mutate(n_ref = ifelse(ref == toupper(nt), nt_n_reads, 0),
                     n_non_ref = ifelse(ref != toupper(nt), nt_n_reads, 0)) %>%
-      dplyr::group_by(id, celltype, chr, pos, mut_pos, gene, total, ref) %>%
+      dplyr::group_by(celltype, chr, pos, mut_pos, gene, total, ref) %>%
       dplyr::summarise(n_ref = sum(n_ref), n_non_ref = sum(n_non_ref)) %>%
       dplyr::mutate(vaf = n_non_ref / total)
       
