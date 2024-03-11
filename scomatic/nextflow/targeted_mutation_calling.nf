@@ -292,8 +292,7 @@ process concat_reads {
 
 // knit coverage report
 process report {
-  label 'normal'
-  memory = { 12.GB * task.attempt }
+  label 'normal10gb'
   publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
     path(reads)
@@ -302,6 +301,7 @@ process report {
   output:
     path('targeted_mutation_calling.html')
     path('targeted_mutation_calling_files/*')
+    path('reads.rds')
   script:
     """
     #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript

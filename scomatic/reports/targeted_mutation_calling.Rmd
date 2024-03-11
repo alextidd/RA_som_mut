@@ -30,7 +30,6 @@ knitr::opts_chunk$set(
 # libraries
 library(magrittr)
 library(ggplot2)
-library(GenomicRanges)
 
 # dev.off() if there is a device
 dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
@@ -77,6 +76,10 @@ reads <-
   # add detected mutations
   dplyr::left_join(recurmuts, by = c('chr', 'mut_pos')) %>%
   split(., .$gene)
+
+# save reads
+reads %>% 
+  saveRDS('reads.rds')
 ```
 
 ## Mutations
@@ -85,7 +88,7 @@ First, we plot the rates of reference and non-reference alleles at mutation wind
 
 ```{r plot}
 # function: create plot list
-plot_positions <- function(reads, include_indels = T) {
+plot_positions <- function(reads, include_indels = T, include_refs = T) {
   p <-
     names(reads) %>%
     purrr::set_names() %>%
@@ -94,8 +97,9 @@ plot_positions <- function(reads, include_indels = T) {
       p_dat <-
         reads[[gene]] %>%
         # optionally exclude indels
-        dplyr::filter(include_indels == T |
-                !name %in% c('-', '_', 'INS', 'ins')) %>%
+        dplyr::filter(
+          include_indels == T | !status %in% c('DEL', 'INS'),
+          include_refs == T | status != 'ref') %>%
         # only plot celltypes with any reads
         dplyr::group_by(celltype) %>%
         dplyr::filter(max(value) > 0) %>%
@@ -111,14 +115,15 @@ plot_positions <- function(reads, include_indels = T) {
         names(x_labs_vec) <- x_labs$pos
         
         g_title <- paste0(
-          gene, ' w/', 
+          gene, ', w/', 
           ifelse(include_indels == T, '', 'o'), 
-          ' indels')
+          ' indels',
+          ifelse(include_refs == T, '', ', w/o refs'))
         
         # get plot dims
         g_p_dims <-
-          c(min(max(5, dplyr::n_distinct(p_dat$mut_pos) * 2 + 2), 50),
-            min(max(5, dplyr::n_distinct(p_dat$celltype) * 1.7 + 2), 50))
+          c(min(max(7, (dplyr::n_distinct(p_dat$mut_pos) + 2) * 2), 50),
+            min(max(7, (dplyr::n_distinct(p_dat$celltype)) * 1.5), 50))
         
         # get plot
         g_p <-
@@ -151,6 +156,7 @@ plot_positions <- function(reads, include_indels = T) {
 # generate plot lists
 p_w_indels <- plot_positions(reads)
 p_wo_indels <- plot_positions(reads, F)
+p_wo_indels_wo_refs <- plot_positions(reads, F, F)
 ```
 
 ```{r, results = 'asis'}
@@ -169,6 +175,10 @@ for (gene in names(reads)) {
     paste0('```{r ', gene,'_wo_indels, fig.dim = p_wo_indels[["', gene, '"]]$dims, warning = F, message = F, echo = F}'),
     paste0('print(p_wo_indels[["', gene, '"]]$plot)'),
     '```',
+    '',
+    paste0('```{r ', gene,'_wo_indels_wo_refs, fig.dim = p_wo_indels_wo_refs[["', gene, '"]]$dims, warning = F, message = F, echo = F}'),
+    paste0('print(p_wo_indels_wo_refs[["', gene, '"]]$plot)'),
+    '```',
     ''
   )
   
@@ -182,11 +192,26 @@ for (gene in names(reads)) {
 cat(unlist(chunks), sep = '\n')
 ```
 
-## Mutations types, by patient across genes
+## Mutation types, by patient across genes
 
-```{r muts_by_patient, fig.width = 10}
+### Mutation types, by patients across all genes
+
+```{r muts_by_patient, fig.width = 10, class.source = 'fold-hide'}
 reads %>%
   dplyr::bind_rows() %>%
+  ggplot(aes(x = id, y = value, fill = status)) +
+  geom_col() +
+  scale_fill_manual(values = nt_cols) + 
+  theme_classic() +
+  scale_x_discrete(guide = guide_axis(angle = -90))
+```
+
+### Mutation types, by patient across all genes, without indels
+
+```{r muts_by_patient_no_indels, fig.width = 10, class.source = 'fold-hide'}
+reads %>%
+  dplyr::bind_rows() %>%
+  dplyr::filter(!status %in% c('INS', 'DEL', 'ref')) %>%
   ggplot(aes(x = id, y = value, fill = status)) +
   geom_col() +
   scale_fill_manual(values = nt_cols) + 

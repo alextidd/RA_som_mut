@@ -60,7 +60,7 @@ awk -F',' -v OFS=',' '$3 != "NA" {print}' \
 # run
 /software/team205/nextflow-23.04.1-all run nextflow/targeted_mutation_calling.nf \
   --mappings ${out_dir}/mappings.csv \
-  --window 1 \
+  --window 5 \
   --out_dir ${out_dir} \
   -c config/LSF.config \
   -w work/ \
