@@ -414,7 +414,9 @@ sce <- xfun::cache_rds({
 }, file = 'sce_w_gains.rds', rerun = params$rerun)
 ```
 
-We also can observe the rate coincidence of chr7 and other gains. The LCM-WES data suggested a nested relationship in which there were chr5+ subclones within chr7+ populations. We look for this here.
+### Co-occurence of CNV events
+
+We also can observe the rate co-occurence of chr7+ and other CNVs. The LCM-WES data suggested a nested relationship in which there were chr5+ subclones within chr7+ populations. We look for this here.
 
 ```{r chr7_and_others}
 events <-
@@ -472,7 +474,7 @@ p +
   theme(legend.position = 'none')
 ```
 
-We also can run a Fisher exact test to test whether chr7+ and chr5+ gains co-occur more often than would be expected by chance, and also test all other co-occurences.
+Here is a contingency table of the frequency of chr7+ versus chr5+ within cells.
 
 ```{r cont_tab}
 cont <-
@@ -483,6 +485,8 @@ cont <-
 table(cont$chr7, cont$chr5) %>%
   knitr::kable()
 ```
+
+We can run a Fisher exact test to test whether chr7+ and chr5+ gains co-occur more often than would be expected by chance, and also test all other co-occurent CNV relationships.
 
 ```{r fisher_exact}
 fisher <- xfun::cache_rds({
@@ -523,6 +527,7 @@ fisher <- xfun::cache_rds({
 }, file = 'fisher.rds', rerun = params$rerun)
 
 fisher %>%
+  dplyr::mutate(p = format(p, digits = 3)) %>%
   knitr::kable()
 ```
 

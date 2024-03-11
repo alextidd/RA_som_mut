@@ -50,8 +50,10 @@ nt_cols <-
     'ref' = 'grey')
 
 # recursites (to add detected mut)
+recursites <-
+  readr::read_tsv('recursites.tsv') 
 recurmuts <-
-  readr::read_tsv('recursites.tsv') %>%
+  recursites %>%
   dplyr::transmute(
     chr,
     mut_pos = pos,
@@ -80,6 +82,21 @@ reads <-
 # save reads
 reads %>% 
   saveRDS('reads.rds')
+```
+
+## Recurrent mutations sites
+
+Recurrent mutations from the LCM-WES data were found using `dNdScv`. Mutated sites in the following genes will be interrogated.
+
+```{r plot_recurmuts, fig.width = 10}
+recursites %>%
+  dplyr::group_by(gene) %>%
+  dplyr::mutate(sum_freq = sum(freq)) %>%
+  ggplot(aes(x = reorder(gene, -sum_freq), y = freq, fill = qval)) +
+  geom_col(position = 'stack') +
+  scale_x_discrete(guide = guide_axis(angle = -90)) +
+  labs(x = 'gene') +
+  theme_classic()
 ```
 
 ## Mutations
