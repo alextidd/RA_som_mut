@@ -62,8 +62,9 @@ awk -F',' -v OFS=',' '$3 != "NA" {print}' \
   --mappings ${out_dir}/mappings.csv \
   --window 1 \
   --out_dir ${out_dir} \
-  -c /nfs/team205/kp9/nextflow/scomatic/LSF.config \
-  -w work/ 
+  -c config/LSF.config \
+  -w work/ \
+  -resume
 
 # # run test
 # # head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv

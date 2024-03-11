@@ -87,6 +87,7 @@ process local {
 // get windows of interest from dndscv
 process get_windows {
   label 'normal'
+  publishDir "${params.out_dir}/summary/", mode: 'copy', pattern: 'recursites.tsv'
   output:
     tuple path('recursites.tsv'), path('refs.tsv')
   script:
@@ -217,7 +218,7 @@ process get_reads {
         # positions
         positions <- (pos - ${params.window}):(pos + ${params.window})
         
-        # get reads at each position of the window and total reads per position
+        # get reads at each position of the window and total n reads per position
         reads_mat <-
           deepSNV::bam2R(
             '${bam}',
@@ -236,28 +237,32 @@ process get_reads {
           tibble::as_tibble() %>%
           dplyr::mutate(
             celltype = '${meta.celltype}',
-            chr = chr, pos = positions, mut_pos = pos, gene = gene,
-            total = rowSums(reads_mat)) %>%
+            chr = chr, mut_pos = pos, pos = positions,  gene = gene,
+            n_reads = rowSums(reads_mat)) %>%
           dplyr::select(
             celltype, 
-            chr, pos, mut_pos, gene, total, 
+            chr, pos, mut_pos, gene, n_reads, 
             dplyr::all_of(nucleotides))
         
       }) %>%
       dplyr::bind_rows()
     
-    # add refs, compare
-    muts <-
+    # add refs, get vafs
+    vafs <-
       sites %>%
       dplyr::left_join(refs) %>%
       tidyr::pivot_longer(cols = dplyr::all_of(nucleotides),
                           values_to = 'nt_n_reads', names_to = 'nt') %>%
-      # get number of ref and non-ref alleles at each position
       dplyr::mutate(n_ref = ifelse(ref == toupper(nt), nt_n_reads, 0),
                     n_non_ref = ifelse(ref != toupper(nt), nt_n_reads, 0)) %>%
-      dplyr::group_by(celltype, chr, pos, mut_pos, gene, total, ref) %>%
+      dplyr::group_by(celltype, chr, pos, mut_pos, gene, n_reads, ref) %>%
+      # get number of ref and non-ref alleles at each position
       dplyr::summarise(n_ref = sum(n_ref), n_non_ref = sum(n_non_ref)) %>%
-      dplyr::mutate(vaf = n_non_ref / total)
+      dplyr::mutate(vaf = n_non_ref / n_reads)
+      
+    muts <-
+      sites %>%
+      dplyr::left_join(vafs)
       
     # save
     muts %>%
@@ -276,21 +281,27 @@ process concat_reads {
     path("${meta.id}_reads.tsv")
   script:
     """
-    head -1 \$(ls *_reads.tsv | head -1) > ${meta.id}_reads.tsv
-    tail -n +2 -q *_reads.tsv >> ${meta.id}_reads.tsv
+    head -1 \$(ls *_reads.tsv | head -1) > ${meta.id}_reads.tsv.tmp
+    for file in *_reads.tsv ; do
+      echo \$file
+      tail -n +2 -q \$file >> ${meta.id}_reads.tsv.tmp
+    done
+    mv ${meta.id}_reads.tsv.tmp ${meta.id}_reads.tsv
     """
 }
 
 // knit coverage report
 process report {
-  tag "${meta.id}"
-  label 'long16core10gb'
+  label 'normal'
+  memory = { 12.GB * task.attempt }
   publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
     path(reads)
+    tuple path(recursites), path(refs)    
     path(rmd)
   output:
     path('targeted_mutation_calling.html')
+    path('targeted_mutation_calling_files/*')
   script:
     """
     #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
@@ -299,7 +310,7 @@ process report {
     rmarkdown::render(
       "${rmd}",
       params = list(
-        cache_dir = "${params.out_dir}/summary/driver_coverage_cache/",
+        cache_dir = "${params.out_dir}/summary/targeted_mutation_calling_cache/",
         rerun = T),
       output_file = "targeted_mutation_calling.html",
       output_dir = getwd()
@@ -346,10 +357,12 @@ workflow {
   | groupTuple
   | concat_reads
   | collect 
-  | view
   | set { collected_reads }
   
   // knit report
-  report(collected_reads, "${baseDir}/../reports/targeted_mutation_calling.Rmd")
+  report(
+    collected_reads, 
+    get_windows.out,
+    "${baseDir}/../reports/targeted_mutation_calling.Rmd")
   
 }

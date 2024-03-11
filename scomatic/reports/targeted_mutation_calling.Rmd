@@ -5,7 +5,7 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     fig_width: 8
-    keep_md: false
+    keep_md: true
     code_folding: show
     toc: true
     toc_float: true
@@ -13,19 +13,14 @@ output:
     toc_depth: 4
     theme: lumen
 params:
-  drivers: NULL
-  hotspots: NULL
-  bam_mappings: NULL
   cache_dir: './target_mutation_calling_cache/'
   rerun: true
 ---
 
 ```{r setup, include = F, message = F, warning = F, class.source = 'fold-hide'}
 # wd <- ifelse(Sys.info()['nodename'] == "mib119104s", '~/Volumes/', '') |> paste0('/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/') ; setwd(wd)
-# rmarkdown::render('reports/driver_coverage.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = F))
 
 # chunk options
-knitr::opts_knit$set(root.dir = '../')
 knitr::opts_chunk$set(
   warning = FALSE,
   message = FALSE,
@@ -42,96 +37,159 @@ dev_off_if <- function() {if (length(dev.list()) != 0) { dev.off() }}
 ```
 
 ```{r load_files}
-list.files(pattern = '_reads.tsv') %>%
+# all possible nucleotides
+nucleotides <- c("A", "T", "C", "G", "-", "INS", "a", "t", "c", "g", "_", "ins")
+
+# strandless nucleotides - colours and order
+nt_cols <-
+  c('INS' = '#e6ab02',
+    'DEL' = '#1c2d78',
+    'A' = '#1b9e77', 
+    'C' = '#d95f02', 
+    'G' = '#7570b3', 
+    'T' = '#e7298a',
+    'ref' = 'grey')
+
+# recursites (to add detected mut)
+recurmuts <-
+  readr::read_tsv('recursites.tsv') %>%
+  dplyr::transmute(
+    chr,
+    mut_pos = pos,
+    mut_pos_lab = paste0(pos, '\ mut: ', mut)
+  )
+
+# reads
+reads <-
+  list.files(pattern = '_reads.tsv') %>%
   purrr::set_names(., gsub('_reads.tsv', '', .)) %>%
   purrr::map(function(file) {
-    reads <- readr::read_tsv(reads)
-  })
+    readr::read_tsv(file, show_col_types = F)
+  }) %>%
+  dplyr::bind_rows(.id = 'id') %>%
+  tidyr::pivot_longer(cols = dplyr::all_of(nucleotides)) %>%
+  dplyr::mutate(
+    # colour in alt alleles
+    status = dplyr::case_when(toupper(name) == ref ~ 'ref',
+                              name %in% c('-', '_') ~ 'DEL',
+                              TRUE ~ toupper(name)) %>%
+      forcats::fct_relevel(names(nt_cols))) %>%
+  # add detected mutations
+  dplyr::left_join(recurmuts, by = c('chr', 'mut_pos')) %>%
+  split(., .$gene)
 ```
 
-```{r plot, fig.width = 20}
-# plot positions
-unique(sites$gene) %>%
-  purrr::walk(function(i) {
-    p <-
-      sites %>%
-      dplyr::filter(gene == i) %>%
-      dplyr::left_join(refs, by = c('chr', 'pos')) %>%
-      tidyr::pivot_longer(cols = dplyr::all_of(nucleotides),
-                          values_to = 'nt_n_reads', names_to = 'nt') %>%
-      dplyr::mutate(
-        strandless_nt = 
-          ifelse(nt %in% c('-', '_'), 'DEL', toupper(nt)),
-        is_ref = ifelse(strandless_nt == ref, 'ref', 'alt'),
-        strandless_nt = paste0(strandless_nt, '_', is_ref) %>% 
-          forcats::fct_relevel(unique(c(paste0(toupper(nucleotides), '_ref'),
-                                        paste0(toupper(nucleotides), '_alt'))))) %>%
-      ggplot(aes(x = pos, y = nt_n_reads, fill = strandless_nt)) + 
-      geom_vline(aes(xintercept = mut_pos)) +
-      geom_col(position = 'stack') +
-      theme_bw() +
-      theme(axis.text.x = element_blank()) +
-      ggh4x::facet_grid2(celltype ~ mut_pos, scales = 'free') +
-      scale_fill_manual(values = c(A_ref = 'darkgreen', A_alt = 'lightgreen',
-                                   C_ref = 'darkblue', C_alt = 'lightblue',
-                                   G_ref = 'darkorange3', G_alt = 'peachpuff',
-                                   T_ref = 'darkred', T_alt = 'salmon',
-                                   INS_alt = 'black', DEL_alt = 'grey')) +
-      ggtitle(i)
-    print(p)
+## Mutations
+
+First, we plot the rates of reference and non-reference alleles at mutation windows in all genes. Then, we do the same for substitutions only (ignoring indels).
+
+```{r plot}
+# function: create plot list
+plot_positions <- function(reads, include_indels = T) {
+  p <-
+    names(reads) %>%
+    purrr::set_names() %>%
+    purrr::map(function(gene) {
+      
+      p_dat <-
+        reads[[gene]] %>%
+        # optionally exclude indels
+        dplyr::filter(include_indels == T |
+                !name %in% c('-', '_', 'INS', 'ins')) %>%
+        # only plot celltypes with any reads
+        dplyr::group_by(celltype) %>%
+        dplyr::filter(max(value) > 0) %>%
+        dplyr::ungroup() 
+      
+      if (nrow(p_dat) > 0) {
+        
+        # get ref alleles for x axis labels
+        x_labs <-
+          p_dat %>%
+          dplyr::distinct(pos, ref) 
+        x_labs_vec <- x_labs$ref
+        names(x_labs_vec) <- x_labs$pos
+        
+        g_title <- paste0(
+          gene, ' w/', 
+          ifelse(include_indels == T, '', 'o'), 
+          ' indels')
+        
+        # get plot dims
+        g_p_dims <-
+          c(min(max(5, dplyr::n_distinct(p_dat$mut_pos) * 2 + 2), 50),
+            min(max(5, dplyr::n_distinct(p_dat$celltype) * 1.7 + 2), 50))
+        
+        # get plot
+        g_p <-
+          p_dat %>%
+          dplyr::mutate(
+            # make sure ordering of positions is maintained
+            x_pos = factor(as.character(pos), 
+                           levels = unique(as.character(sort(pos)))),
+            x_mut_pos = dplyr::case_when(pos == mut_pos ~ x_pos, TRUE ~ NA)) %>%
+          # plot
+          ggplot(aes(x = x_pos, y = value, fill = status)) +
+          geom_col(position = 'stack') +
+          geom_vline(aes(xintercept = x_mut_pos)) +
+          theme_classic() +
+          scale_x_discrete(labels = x_labs_vec) +
+          scale_fill_manual(values = nt_cols) +
+          ggh4x::facet_grid2(celltype ~ mut_pos_lab, scales = 'free') +
+          labs(title = g_title, x = 'pos (ref shown)')
+        
+        # return
+        list(plot = g_p, dims = g_p_dims)
+        
+      }
     })
+  
+  # return
+  p
+}
+
+# generate plot lists
+p_w_indels <- plot_positions(reads)
+p_wo_indels <- plot_positions(reads, F)
 ```
 
-# Mutational calls in drivers from the LCM-WES data
+```{r, results = 'asis'}
+chunks <- c()
 
-```{r mut_hotspots, eval = F}
-# read in bam mappings, get celltype-split bams only
-mappings <-
-  readr::read_csv(params$bam_mappings) %>%
-  dplyr::filter(!is.na(celltype)) %>%
-  # temporarily remove problematic BRI-401 endo bam
-  dplyr::filter(!(id == 'BRI_401' & celltype == 'Endothelial_cell'))
+for (gene in names(reads)) {
+  
+  chunks <- c(chunks, paste0('\n### ', gene))
+  
+  knit_plot <- c(
+    '',
+    paste0('```{r ', gene,'_w_indels, fig.dim = p_w_indels[["', gene, '"]]$dims, warning = F, message = F, echo = F}'),
+    paste0('print(p_w_indels[["', gene, '"]]$plot)'),
+    '```',
+    '',
+    paste0('```{r ', gene,'_wo_indels, fig.dim = p_wo_indels[["', gene, '"]]$dims, warning = F, message = F, echo = F}'),
+    paste0('print(p_wo_indels[["', gene, '"]]$plot)'),
+    '```',
+    ''
+  )
+  
+  knitted_plot <- knitr::knit_child(text = knit_plot, envir = environment(), quiet = T)
+  dev_off_if()
+  
+  chunks <- c(chunks, knitted_plot)
+  
+}
 
-# read in drivers
-drivers <-
-  readr::read_tsv(params$drivers, col_names = c('chr', 'start', 'end', 'gene')) %>%
-  dplyr::mutate(chr = gsub('chr', '', chr))
-
-# read in mutations in drivers
-hotspots <-
-  readr::read_tsv(params$hotspots) %>%
-  dplyr::mutate(mut_pos = pos,
-                chr = gsub('chr', '', chr)) %>%
-  dplyr::group_by(chr, mut_pos, gene, ref_cod) %>%
-  # summarise each position
-  dplyr::summarise(n = dplyr::n(),
-                   id = paste(id, collapse = ','),
-                   mut_cod = paste(mut_cod, collapse = ','),
-                   impact = paste(impact, collapse = ',')) %>% 
-  dplyr::group_by(dplyr::across(everything())) %>%
-  # extend pileup window 20bp either side of mutated position
-  dplyr::reframe(pos = (mut_pos - 20):(mut_pos + 20)) 
-
-# save as a bed
-hotspots %>%
-  dplyr::transmute(chr = paste0('chr', chr), start = pos - 1, end = pos) %>%
-  readr::write_tsv(
-    'data/driver_genes/lcm_wes_mutations_20bp_window.bed',
-    col_names = F)
-
-# get ref allele at each position
-refs <- xfun::cache_rds({
-  refs <-
-    system('bedtools getfasta -fi /lustre/scratch125/casm/team268im/al28/bed_ref/GRCh38_full_analysis_set_plus_decoy_hla_genome.fa -bed data/driver_genes/lcm_wes_mutations_20bp_window.bed -tab', intern = T) %>%
-    paste(collapse = '\n') %>%
-    readr::read_tsv(col_names = c('pos', 'ref')) %>%
-    tidyr::separate_wider_delim(cols = pos, delim = stringr::regex(':|-'), 
-                                names = c('chr', 'start', 'end')) %>%
-    type.convert(as.is = T) %>%
-    dplyr::transmute(chr = gsub('chr', '', chr), pos = end, ref) %>%
-    dplyr::distinct()
-  refs
-}, file = 'refs.rds', rerun = params$rerun)
+cat(unlist(chunks), sep = '\n')
 ```
 
+## Mutations types, by patient across genes
 
+```{r muts_by_patient, fig.width = 10}
+reads %>%
+  dplyr::bind_rows() %>%
+  ggplot(aes(x = id, y = value, fill = status)) +
+  geom_col() +
+  scale_fill_manual(values = nt_cols) + 
+  theme_classic() +
+  scale_x_discrete(guide = guide_axis(angle = -90))
+```
