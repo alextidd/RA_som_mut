@@ -13,6 +13,7 @@ output:
     toc_depth: 4
     theme: lumen
 params:
+  recursites: NULL
   cache_dir: './target_mutation_calling_cache/'
   rerun: true
 ---
@@ -51,7 +52,7 @@ nt_cols <-
 
 # recursites (to add detected mut)
 recursites <-
-  readr::read_tsv('recursites.tsv') 
+  readr::read_tsv(params$recursites) 
 recurmuts <-
   recursites %>%
   dplyr::transmute(
@@ -88,7 +89,7 @@ reads %>%
 
 Recurrent mutations from the LCM-WES data were found using `dNdScv`. Mutated sites in the following genes will be interrogated.
 
-```{r plot_recurmuts, fig.width = 10}
+```{r plot_recurmuts, fig.width = 10, eval = F}
 recursites %>%
   dplyr::group_by(gene) %>%
   dplyr::mutate(sum_freq = sum(freq)) %>%

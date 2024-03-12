@@ -6,10 +6,8 @@ params.mappings     = null
 params.out_dir      = 'out/'
 params.location     = 'local'
 // targeted nanoseq, target genes, fasta to get ref alleles
-params.tnanoseq     = '/lustre/scratch125/casm/team268im/lh22/synovium_nanoseq/ex_t_dndsout/dnds_nano_muts.tsv'
-params.tgenes       = '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/driver_genes/Sanger_TERT-v4_TE-95148282_hg19_highstringencyfilter_buccal_gene_list.tsv'
+params.recursites    = '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/targeted_mutation_calling/summary/recursites.tsv'
 params.fasta        = '/lustre/scratch125/casm/team268im/al28/bed_ref/GRCh38_full_analysis_set_plus_decoy_hla_genome.fa'
-params.hg19_to_hg38 = '/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/data/liftOver/hg19ToHg38.over.chain'
 // bam2r filtering arguments (recommended by Andrew)
 params.min_phred    = 30
 params.sam_flag     = 3844
@@ -87,9 +85,8 @@ process local {
 // get windows of interest from dndscv
 process get_windows {
   label 'normal'
-  publishDir "${params.out_dir}/summary/", mode: 'copy', pattern: 'recursites.tsv'
   output:
-    tuple path('recursites.tsv'), path('refs.tsv')
+    path('refs.tsv')
   script:
     """
     #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
@@ -98,76 +95,25 @@ process get_windows {
     library(magrittr)
     library(GenomicRanges)
     
-    # read targeted nanoseq 
-    tnanoseq <- readr::read_tsv('${params.tnanoseq}')
-    
-    # read genes of interest
-    target_genes <- readr::read_tsv('${params.tgenes}')
-    
-    # run dndscv
-    dnds <-
-      dndscv::dndscv(
-        unique(tnanoseq[, 1:5]),
-        max_muts_per_gene_per_sample = Inf,
-        max_coding_muts_per_sample = Inf,
-        gene_list = target_genes\$gene,
-        outmats = T)
-        
-    # run sitednds
-    sitednds <-
-      dndscv::sitednds(dnds)
-    
-    # get the significant genes
-    signif_genes <-
-      dnds\$sel_cv %>%
-      tibble::as_tibble() %>%
-      dplyr::filter(qglobal_cv < 0.1)
-    
-    # get the sites with positively selected mutations
+    # get recurrent mutated sites
     recursites <-
-      sitednds\$recursites %>%
-      tibble::as_tibble() %>%
-      # fix 1d table columns -> numeric columns
-      dplyr::mutate(dplyr::across(where(is.table), as.numeric))
-    
-    # convert to granges (1-based!)
-    gr <- GRanges(
-      seqnames = paste0('chr', recursites\$chr),
-      ranges = IRanges(start = recursites\$pos, end = recursites\$pos),
-      gene = recursites\$gene,
-      pos_GRCh37 = recursites\$pos)
-    
-    # get chain file
-    chain <-
-      rtracklayer::import.chain('${params.hg19_to_hg38}')
-    
-    # lift over
-    lifted <-
-      rtracklayer::liftOver(gr, chain) %>%
-      unlist() %>%
-      tibble::as_tibble() %>%
-      dplyr::transmute(chr = gsub('chr', '', seqnames), 
-                       pos = start, gene, pos_GRCh37)
-    
-    # update positions
-    recursites <-
-      recursites %>%
-      dplyr::rename(pos_GRCh37 = pos) %>%
-      dplyr::left_join(lifted, by = c('chr', 'gene', 'pos_GRCh37')) %>%
-      dplyr::select(chr, pos, gene, ref, mut, pos_GRCh37, everything())
+      readr::read_tsv('${params.recursites}')
     
     # get each position in a x bp window around each recursite
-    recursites %>%
+    recursites_windows <-
+      recursites %>%
       dplyr::group_by(chr, pos) %>%
       dplyr::reframe(pos = (pos - ${params.window}):(pos + ${params.window})) %>%
-      dplyr::transmute(chr = paste0('chr', chr), start = pos - 1, end = pos) %>%
+      dplyr::transmute(chr = paste0('chr', chr), start = pos - 1, end = pos)
+    
+    # save bed 
+    recursites_windows %>%
       readr::write_tsv('recursites_windows.bed', col_names = F)
     
     # get reference alleles at each position in the window
-    refs <-
-      system(
-        'bedtools getfasta -fi ${params.fasta} -bed recursites_windows.bed -tab', 
-        intern = T) %>%
+    system(
+      'bedtools getfasta -fi ${params.fasta} -bed recursites_windows.bed -tab', 
+      intern = T) %>%
       paste(collapse = '\\n') %>%
       readr::read_tsv(col_names = c('pos', 'ref')) %>%
       tidyr::separate_wider_delim(
@@ -175,12 +121,7 @@ process get_windows {
         names = c('chr', 'start', 'end')) %>%
       type.convert(as.is = T) %>%
       dplyr::transmute(chr = gsub('chr', '', chr), pos = end, ref) %>%
-      dplyr::distinct()
-    
-    # save
-    recursites %>%
-      readr::write_tsv('recursites.tsv')
-    refs %>%
+      dplyr::distinct() %>%
       readr::write_tsv('refs.tsv')
     """
 }
@@ -192,7 +133,7 @@ process get_reads {
   label 'normal'
   input:
     tuple val(meta), path(bam), path(bai)
-    tuple path(recursites), path(refs)
+    path(refs)
   output:
     tuple val(meta), path("${meta.id}_${meta.celltype}_reads.tsv")
   script:
@@ -206,7 +147,7 @@ process get_reads {
     nucleotides <- c("A", "T", "C", "G", "-", "INS", "a", "t", "c", "g", "_", "ins")
     
     # read recursites
-    recursites <- readr::read_tsv('${recursites}')
+    recursites <- readr::read_tsv('${params.recursites}')
     
     # read ref alleles
     refs <- readr::read_tsv('${refs}')
@@ -215,7 +156,7 @@ process get_reads {
       recursites %>%
       purrr::pmap(function(chr, pos, gene, ref, mut, ...) {
 
-        # positions
+        # get all positions
         positions <- (pos - ${params.window}):(pos + ${params.window})
         
         # get reads at each position of the window and total n reads per position
@@ -296,7 +237,7 @@ process report {
   publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
     path(reads)
-    tuple path(recursites), path(refs)    
+    path(refs)    
     path(rmd)
   output:
     path('targeted_mutation_calling.html')
@@ -310,6 +251,7 @@ process report {
     rmarkdown::render(
       "${rmd}",
       params = list(
+        recursites = "${params.recursites}",
         cache_dir = "${params.out_dir}/summary/targeted_mutation_calling_cache/",
         rerun = T),
       output_file = "targeted_mutation_calling.html",

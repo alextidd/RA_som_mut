@@ -9,62 +9,40 @@ cd $wd
 . ~/.bashrc
 mamba activate jupy
 
-# # create mappings
-# mappings=data/Zhang2023/mappings.csv
-# bams_dir=/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/
-# ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/
-# (
-#   echo 'id,bam,celltype' ;
-#   while read -r id ; do
-#     # check if ct bams directory exists
-#     if [ -d $ct_bams_dir/$id/ ] ; then
-#       ct_bams=($(ls $ct_bams_dir/$id/celltype_bams/*.bam))
-#       # check if scomatic successfully ran
-#       if [ ${#ct_bams[*]} -gt 0 ] ; then
-#         echo "$id,$bams_dir/${id/_/-}/possorted_genome_bam.bam,NA" ;
-#         for file in ${ct_bams[@]} ; do
-#           ct=$(basename $file | cut -d. -f2)
-#           echo "$id,$file,$ct" ;
-#         done
-#       fi
-#     fi
-#   done < \
-#   <(sed 1d $mappings | cut -d, -f2 | sort -u)
-# ) | cat > out/Zhang2023/coverage/mappings.csv
-# 
-# # run
-# /software/team205/nextflow-23.04.1-all run nextflow/driver_coverage.nf \
-#     --mappings ${wd}out/Zhang2023/coverage/mappings.csv \
-#     --drivers ${wd}data/driver_genes/driver_gene_coords_for_coverage.tsv \
-#     --mutations ${wd}data/driver_genes/lcm_wes_mutations.tsv \
-#     --out_dir ${wd}out/Zhang2023/coverage/ \
-#     --min_MQ 0 \
-#     -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
-#     --location local \
-#     -w test/work/ \
-#     -resume
-
-# # knit target_mutation_calling.Rmd
-# mkdir out/Zhang2023/coverage/summary/
-# Rscript -e "rmarkdown::render('reports/targeted_mutation_calling.Rmd', params = list(drivers = 'data/driver_genes/driver_gene_coords_for_coverage.bed', hotspots = 'data/driver_genes/lcm_wes_mutations.tsv', bam_mappings = 'out/Zhang2023/coverage/mappings.csv', rerun = F, cache_dir = 'out/Zhang2023/coverage/summary/targeted_mutation_calling_cache/'), output_file = 'targeted_mutation_calling.html', output_dir = 'out/Zhang2023/coverage/summary/')"
-
-# run target_mutation_calling.nf on celltype bams only
-out_dir=${wd}out/Zhang2023/targeted_mutation_calling/
-mkdir -p $out_dir
-
-# get mappings of celltype-specific bams only
-cat ${wd}out/Zhang2023/coverage/mappings.csv | 
-awk -F',' -v OFS=',' '$3 != "NA" {print}' \
-> ${out_dir}/mappings.csv
+# create mappings
+mappings=data/Zhang2023/mappings.csv
+bams_dir=/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal2023/cellranger_output/
+ct_bams_dir=/lustre/scratch125/casm/team268im/at31/RA_som_mut/scomatic/out/Zhang2023/coverage/
+(
+  echo 'id,bam,celltype' ;
+  while read -r id ; do
+    # check if ct bams directory exists
+    if [ -d $ct_bams_dir/$id/ ] ; then
+      ct_bams=($(ls $ct_bams_dir/$id/celltype_bams/*.bam))
+      # check if scomatic successfully ran
+      if [ ${#ct_bams[*]} -gt 0 ] ; then
+        echo "$id,$bams_dir/${id/_/-}/possorted_genome_bam.bam,NA" ;
+        for file in ${ct_bams[@]} ; do
+          ct=$(basename $file | cut -d. -f2)
+          echo "$id,$file,$ct" ;
+        done
+      fi
+    fi
+  done < \
+  <(sed 1d $mappings | cut -d, -f2 | sort -u)
+) | cat > out/Zhang2023/coverage/mappings.csv
 
 # run
-/software/team205/nextflow-23.04.1-all run nextflow/targeted_mutation_calling.nf \
-  --mappings ${out_dir}/mappings.csv \
-  --window 5 \
-  --out_dir ${out_dir} \
-  -c config/LSF.config \
-  -w work/ \
-  -resume
+/software/team205/nextflow-23.04.1-all run nextflow/driver_coverage.nf \
+    --mappings ${wd}out/Zhang2023/coverage/mappings.csv \
+    --drivers ${wd}data/driver_genes/driver_gene_coords_for_coverage.tsv \
+    --mutations ${wd}data/driver_genes/lcm_wes_mutations.tsv \
+    --out_dir ${wd}out/Zhang2023/coverage/ \
+    --min_MQ 0 \
+    -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+    --location local \
+    -w test/work/ \
+    -resume
 
 # # run test
 # # head -6 data/Zhang2023/coverage_mappings.csv > data/Zhang2023/coverage_mappings_test.csv
