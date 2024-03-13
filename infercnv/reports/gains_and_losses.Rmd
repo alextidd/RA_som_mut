@@ -16,6 +16,7 @@ params:
   sce: NULL
   cell_group_name: NULL
   infercnv_dir: NULL
+  metadata: NULL
   cache_dir: NULL
   rerun: true
   max_prop_for_wt: 0.5
@@ -461,7 +462,7 @@ p_dat <-
 p <-
   p_dat %>%
   ggplot(aes(x = events)) +
-  geom_text(aes(y = n + 50,  label = label), 
+  geom_text(aes(y = n,  label = label), 
             vjust = 0.5, hjust = 0, angle = 90, size = 2) +
   scale_x_discrete(guide = guide_axis(angle = -90)) +
   ylim(c(0, max(p_dat$n) * 1.1)) +
@@ -473,6 +474,8 @@ p +
   geom_bar(aes(fill = cell_group)) +
   theme(legend.position = 'none')
 ```
+
+#### Fisher exact test
 
 Here is a contingency table of the frequency of chr7+ versus chr5+ within cells.
 
@@ -503,22 +506,30 @@ fisher <- xfun::cache_rds({
         # run fisher exact test
         fisher <- fisher.test(sce$chr7_gain, event_vec)
         
+        # get contingencies
+        cont <-
+          table(sce@colData[, c('chr7_gain', event)]) 
+        
          # return relevant stats
         tibble::tibble(
           OR = fisher$estimate, 
-          p = fisher$p.value)
+          p = fisher$p.value,
+          sig = ifelse(fisher$p.value < 0.05, '*', ''),
+          n_WT = cont[1, 1],
+          n_chr7_gain = cont[2, 1],
+          n_event = cont[1, 2],
+          n_both = cont[2, 2])
         
       } else {
         
         # no event
-        tibble::tibble(OR = NA, p = NA)
-        
+        tibble::tibble()
       }
       
     }) %>%
     dplyr::bind_rows(.id = 'event') %>%
     # remove chr7+ (can't do chr7+ vs chr7+)
-    dplyr::filter(event != 'chr7_gain') %>%
+    dplyr::filter(event != 'chr7_gain', n_both > 0) %>%
     dplyr::arrange(-OR)
   
   # return
@@ -529,6 +540,80 @@ fisher <- xfun::cache_rds({
 fisher %>%
   dplyr::mutate(p = format(p, digits = 3)) %>%
   knitr::kable()
+```
+
+#### GLM
+
+We can also run a GLM. 
+
+```{r glm}
+# read in metadata
+metadata <-
+  readr::read_tsv(params$metadata)
+
+# create glm
+# prop_chr7_gain ~ age (+ coverage) (per donor)
+for_glm <-
+  dplyr::inner_join(
+    tibble::as_tibble(sce@colData), 
+    metadata, 
+    by = c('sample' = 'id')) %>%
+  dplyr::filter(!is.na(age), !is.na(chr7_gain)) %>%
+  dplyr::group_by(sample, age, CTAP, sex, race, ethnicity) %>%
+  dplyr::summarise(n_chr7_gain = sum(chr7_gain),
+                   n_cells = dplyr::n(),
+                   ch7_gain_prop = n_chr7_gain / n_cells) 
+
+for_glm %>%
+  {glm(.$n_chr7_gain ~ log(.$n_cells) + .$age)}
+```
+
+```{r plot_glm_vars}
+# n cells vs n chr7 gain
+for_glm %>%
+  ggplot(aes(x = n_cells, y = n_chr7_gain)) +
+  geom_point() +
+  theme_classic()
+
+# age vs prop chr7 gain
+for_glm %>%
+  ggplot(aes(x = age, y = ch7_gain_prop)) +
+  geom_point() +
+  theme_classic()
+
+# all categorical variables
+for_glm %>%
+  tidyr::pivot_longer(cols = c('CTAP', 'sex', 'race', 'ethnicity', 'subcluster')) %>%
+  dplyr::group_by(name, value) %>%
+  dplyr::mutate(med = median(ch7_gain_prop)) %>%
+  ggplot(aes(
+    x = tidytext::reorder_within(value, by = med, within = name), 
+    y = ch7_gain_prop)) +
+  geom_boxplot() +
+  geom_jitter(height = 0) +
+  facet_wrap(~ name, nrow = 1, scales = 'free') +
+  tidytext::scale_x_reordered(guide = guide_axis(angle = -45)) +
+  theme_classic() +
+  labs(x = '')
+
+# looking by cluster
+for_glm_w_cluster <-
+  dplyr::inner_join(
+    tibble::as_tibble(sce@colData), 
+    metadata, 
+    by = c('sample' = 'id')) %>%
+  dplyr::filter(!is.na(age), !is.na(chr7_gain)) %>%
+  dplyr::group_by(
+    sample, age, CTAP, sex, race, ethnicity, cluster_name) %>%
+  dplyr::summarise(n_chr7_gain = sum(chr7_gain),
+                   n_cells = dplyr::n(),
+                   ch7_gain_prop = n_chr7_gain / n_cells) 
+for_glm_w_cluster %>%
+  ggplot(aes(x = cluster_name, y = ch7_gain_prop)) +
+  geom_violin() +
+  geom_jitter(height = 0) +
+  theme_classic() +
+  scale_x_discrete(guide = guide_axis(angle = -45))
 ```
 
 # Pseudobulking and DGEA

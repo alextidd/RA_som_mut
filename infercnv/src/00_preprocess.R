@@ -12,6 +12,16 @@ dat_dir <- '/lustre/scratch126/casm/team268im/mp34/scRNAseq_data/RA_ZhangEtal202
 cellranger_dir <- paste0(dat_dir, 'cellranger_output/')
 processed_dir <- paste0(dat_dir, 'processed_output/')
 
+# clinical metadata
+clinical <- 
+  readr::read_csv('data/Zhang2023/syn26710600/AMP-RA.SLE_clinical.csv') %>%
+  dplyr::rename(id2 = individualID) %>%
+  dplyr::mutate(age = as.numeric(ageEnrollment))
+readr::read_tsv('data/Zhang2023/syn26710600/CTAP_donor_mapping.tsv') %>%
+  dplyr::rename(id = donor, id2 = subject_id) %>%
+  dplyr::left_join(clinical) %>%
+  readr::write_tsv('data/Zhang2023/clinical_metadata.tsv')
+
 # annotations TSVs (cell celltype) ----
 readRDS(paste0(processed_dir, 'all_cells_reference.rds'))$meta_data %>%
   dplyr::select(cell, 
