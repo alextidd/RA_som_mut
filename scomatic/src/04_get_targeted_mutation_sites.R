@@ -90,7 +90,7 @@ source('src/withingenednds.R')
 tnfrsf14 <-
   readr::read_tsv('data/driver_genes/TNFRSF14_withingene_sites.tsv') %>%
   # get all possible nonsense mutations
-  dplyr::filter(impact == 'Nonsense')
+  dplyr::filter(!is.na(impact), impact != 'Synonymous')
 
 # lift over GRCh37 -> GRCh38
 # convert to granges (1-based!)

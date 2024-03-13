@@ -233,7 +233,7 @@ process concat_reads {
 
 // knit coverage report
 process report {
-  label 'normal10gb'
+  label 'normal100gb'
   publishDir "${params.out_dir}/summary/", mode: 'copy'
   input:
     path(reads)
