@@ -1,0 +1,11 @@
+work/
+.nextflow.log*
+._*
+.ipynb_checkpoints
+log/
+out/
+data/
+.nextflow
+*.html
+*.md
+*_cache/

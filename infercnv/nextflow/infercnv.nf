@@ -5,10 +5,10 @@ params.help               = false
 params.mappings           = null
 params.annotations        = null
 params.gene_order_file    = null
-params.out_dir            = './'
-params.annotation_col     = 'celltype'
-params.analysis_mode      = 'subclusters'
-params.cluster_by_groups  = 'TRUE'
+params.out_dir            = "./"
+params.annotation_col     = "celltype"
+params.analysis_mode      = "subclusters"
+params.cluster_by_groups  = "TRUE"
 
 // help
 if (params.help) {
@@ -21,7 +21,7 @@ if (params.help) {
   |                     `raw_counts_matrix`.
   |   --annotations     Path to the annotations TSV file, with columns `id`,
   |                     `cell`, and the annotation column (specify with the 
-  |                     --annotation_col argument, default: 'celltype')
+  |                     --annotation_col argument, default: "celltype")
   |   --gene_order_file Path to the headerless gene order TSV file, with columns 
   |                     `gene`, `chr`, `start`, `stop`. See the inferCNV wiki 
   |                     for details.
@@ -41,40 +41,40 @@ if (params.help) {
 
 // perform infercnv on each sample
 process infercnv {
+  container "trinityctat/infercnv"
   tag "${meta.id}"
-  label 'week16core60gb'
-  errorStrategy = 'retry'
+  label "week16core60gb"
+  errorStrategy = "retry"
   publishDir(
     path: "${params.out_dir}/${meta.id}", 
-    mode: 'copy',
-    saveAs: { fn -> fn.substring(fn.lastIndexOf('/')+1) }
+    mode: "copy",
+    saveAs: { fn -> fn.substring(fn.lastIndexOf("/")+1) }
   ) 
   
   input:
     tuple val(meta), path(raw_counts_matrix)
+    path(annotations)
+    path(gene_order_file)
     
   output:
     tuple val(meta), path("out/*")
 
   script:
     """
-    #!/usr/bin/env /nfs/users/nfs_a/at31/miniforge3/envs/jupy/bin/Rscript
+    #!/usr/bin/env Rscript
     
     # libraries
     library(magrittr)
     library(Matrix)
     
     # generate annotations file
-    annotations <- 
-        readr::read_tsv('${params.annotations}') %>%
-        dplyr::filter(id == '${meta.id}') %>%
-        dplyr::transmute(cell, annotation = ${params.annotation_col})
-    annotations %>% 
-      readr::write_tsv('annotations.tsv', col_names = F)
+    annotations <- read.delim("${annotations}")
+    annotations <- annotations[c("cell", "${params.annotation_col}"), 
+                               annotations\$id == "${meta.id}"]
+    write.delim(annotations, "annotations.tsv", col_names = F)
     
     # subset matrix to cells in the sample
-    raw_counts_matrix <- 
-        readRDS('${raw_counts_matrix}')
+    raw_counts_matrix <- readRDS("${raw_counts_matrix}")
     raw_counts_matrix <-
       raw_counts_matrix[, colnames(raw_counts_matrix) %in% annotations\$cell]
 
@@ -82,8 +82,8 @@ process infercnv {
     infercnv_obj <-
         infercnv::CreateInfercnvObject(
             raw_counts_matrix = raw_counts_matrix,
-            annotations_file = 'annotations.tsv',
-            gene_order_file = '${params.gene_order_file}',
+            annotations_file = "annotations.tsv",
+            gene_order_file = "${gene_order_file}",
             ref_group_names = NULL)
     
     # run infercnv 
@@ -93,10 +93,10 @@ process infercnv {
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
-            out_dir = 'out/',
+            out_dir = "out/",
             num_threads = 8, 
-            cluster_by_groups = as.logical('${params.cluster_by_groups}'),
-            analysis_mode = c('${params.analysis_mode}'),
+            cluster_by_groups = as.logical("${params.cluster_by_groups}"),
+            analysis_mode = c("${params.analysis_mode}"),
             denoise = T,
             noise_logistic = F,
             resume_mode = T,
@@ -110,10 +110,10 @@ process infercnv {
             # turn on to auto-run the HMM prediction of CNV levels
             HMM = TRUE,                       
             HMM_transition_prob = 1e-6,
-            HMM_report_by = c('subcluster'),
+            HMM_report_by = c("subcluster"),
             
             # # https://github.com/harbourlab/UPhyloplot2
-            # tumor_subcluster_partition_method = 'random_trees',
+            # tumor_subcluster_partition_method = "random_trees",
             
             # sets midpoint for logistic
             sd_amplifier = 0.65
@@ -127,13 +127,13 @@ process infercnv {
     # plot smoothed output
     infercnv_obj %>%
       infercnv::plot_cnv(
-        output_filename = 'out/infercnv.median_filtered',
+        output_filename = "out/infercnv.median_filtered",
         x.center = 1,
         color_safe_pal = F)
       
     # write metadata table
     infercnv::add_to_seurat(
-      infercnv_output_path = 'out/')
+      infercnv_output_path = "out/")
     """
 }
 
@@ -147,18 +147,28 @@ workflow {
   if (params.gene_order_file == null) {
     error "Please provide a gene order file via --gene_order_file"
   }
+  if (params.annotations == null) {
+    error "Please provide annotations TSV file via --annotations"
+  }
+
+  // get annotations file
+  Channel.fromPath(params.annotations, checkIfExists: true) 
+  | set { ch_annotations }
+
+  // get gene order file
+  Channel.fromPath(params.gene_order_file, checkIfExists: true)
+  | set { ch_gene_order_file }
   
   // get metadata + bam paths
   Channel.fromPath(params.mappings, checkIfExists: true) 
   | splitCsv(header: true)
   | map { row ->
-    meta = row.subMap('id')
+    meta = row.subMap("id")
     [meta, file(row.raw_counts_matrix, checkIfExists: true)]
   }
-  | set { mappings }
+  | set { ch_mappings }
   
   // run infercnv
-  mappings |
-  infercnv
+  infercnv(ch_mappings, ch_annotations, ch_gene_order_file)
   
 }

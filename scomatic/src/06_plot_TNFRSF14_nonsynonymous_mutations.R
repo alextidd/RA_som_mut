@@ -8,7 +8,9 @@ setwd(wd)
 
 #libraries
 library(magrittr)
-library(GenomicFeatures)
+library(ggplot2)
+
+# load ----
 
 # get recursites in TNFRSF14
 recursites <-
@@ -28,7 +30,7 @@ exons <-
     gene = 'TNFRSF14') %>%
   dplyr::mutate(feature = paste0('exon', dplyr::row_number()))}
 introns <-
-  gene_spans %>%
+  exons %>%
   dplyr::group_by(chr, gene) %>%
   dplyr::transmute(
     new_end = start - 1, start = dplyr::lag(end) + 1) %>%
@@ -48,6 +50,8 @@ features_all_positions <-
   tidyr::unnest(cols = 'pos') %>%
   dplyr::select(-start, -end)
 
+# colours and orderings ----
+
 # alts - colours and order
 nt_cols <-
   c('INS' = '#e6ab02',
@@ -66,6 +70,8 @@ imp_cols <-
     'Essential_Splice' = '#d95f02', 
     'Stop_loss' = '#7570b3')
 
+# generate plot data ----
+
 # plot mutations
 p_dat <-
   reads %>%
@@ -82,7 +88,18 @@ p_dat <-
   dplyr::filter(sum(value) > 0) %>%
   dplyr::left_join(features_all_positions %>% dplyr::select(-gene))
 
-pdf('test.pdf', height = 15, width = 20)
+# plot mutations, collapsed per patient
+p_dat_id_lvl <-
+  reads %>%
+  dplyr::bind_rows() %>%
+  dplyr::filter(pos == mut_pos) %>%
+  dplyr::left_join(recursites, relationship = 'many-to-many') %>%
+  dplyr::filter(name == mut, value > 0) %>%
+  dplyr::group_by(chr, pos, ref, status, aachange, celltype, gene, impact) %>%
+  dplyr::summarise(value = dplyr::n_distinct(id)) %>%
+  dplyr::left_join(features_all_positions %>% dplyr::select(-gene))
+
+pdf('out/Zhang2023/targeted_mutation_calling/TNFRSF14/summary/mutations.pdf', height = 15, width = 20)
 
 # exons and introns
 p_dat %>%
@@ -115,7 +132,10 @@ p_dat %>%
   geom_segment(aes(x = pos, xend = pos, y = 0, yend = value)) +
   geom_point() +
   ggrepel::geom_label_repel(
-    data = p_dat %>% dplyr::group_by(celltype) %>% dplyr::slice_max(value, n = 3),
+    data = p_dat %>% 
+      dplyr::ungroup() %>%
+      dplyr::filter(grepl('exon', feature)) %>%
+      dplyr::slice_max(value, n = 20),
     aes(label = aa_change_label),
     min.segment.length = 0, nudge_y = 0.2,
     show.legend = F) +
@@ -129,6 +149,70 @@ p_dat %>%
     celltype ~ feature, scales = 'free', space = 'free') +
   labs(x = 'TNFRSF14', 
        title = 'All nonsynonymous mutations detected in exons of TNFRSF14') 
+
+# n patients sharing mut
+p_dat_id_lvl %>%
+  dplyr::filter(grepl('exon', feature), value > 0) %>%
+  ggplot(aes(x = pos, y = value, colour = impact)) + 
+  # plot line at y = 0
+  geom_segment(aes(x = -Inf, xend = Inf, y = 0, yend = 0),
+               colour = 'black') +
+  # plot all detected nonsense mutations
+  geom_segment(aes(x = pos, xend = pos, y = 0, yend = value)) +
+  geom_point() +
+  ggrepel::geom_label_repel(
+    data = p_dat_id_lvl %>% 
+      dplyr::ungroup() %>%
+      dplyr::filter(grepl('exon', feature)) %>%
+                      dplyr::slice_max(value, n = 10),
+    aes(label = aachange),
+    min.segment.length = 0, nudge_y = 0.2,
+    show.legend = F) +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(),
+        panel.border = element_blank(),
+        axis.line.x = element_blank()) +
+  scale_colour_manual(values = imp_cols) +
+  scale_x_continuous(guide = guide_axis(angle = -45), n.breaks = 2) +
+  ggh4x::facet_grid2(
+    celltype ~ feature, scales = 'free', space = 'free') +
+  labs(x = 'TNFRSF14', 
+       title = 'All nonsynonymous mutations detected in exons of TNFRSF14 (dups collapsed per patient)') 
+
+dev.off()
+
+pdf('out/Zhang2023/targeted_mutation_calling/TNFRSF14/summary/mutations2.pdf', height = 7, width = 10)
+
+# n patients sharing mut
+p_dat_id_lvl %>%
+  dplyr::filter(grepl('exon', feature), value > 0) %>%
+  ggplot(aes(x = pos, y = value, colour = impact)) + 
+  # plot line at y = 0
+  geom_segment(aes(x = -Inf, xend = Inf, y = 0, yend = 0),
+               colour = 'black') +
+  # plot all detected nonsense mutations
+  geom_segment(aes(x = pos, xend = pos, y = 0, yend = value)) +
+  geom_point() +
+  ggrepel::geom_label_repel(
+    data = p_dat_id_lvl %>% 
+      dplyr::ungroup() %>%
+      dplyr::filter(grepl('exon', feature)) %>%
+      dplyr::slice_max(value, n = 10),
+    aes(label = aachange),
+    min.segment.length = 0, nudge_y = 0.2,
+    show.legend = F) +
+  theme_classic() +
+  theme(panel.grid.major.y = element_line(),
+        panel.border = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line.x = element_blank()) +
+  scale_colour_manual(values = imp_cols) +
+  scale_x_continuous(guide = guide_axis(angle = -45), n.breaks = 2) +
+  ggh4x::facet_grid2(
+    . ~ feature, scales = 'free', space = 'free') +
+  labs(x = 'TNFRSF14', 
+       title = 'All nonsynonymous mutations detected in exons of TNFRSF14 (dups collapsed per patient)') 
 
 dev.off()
 
