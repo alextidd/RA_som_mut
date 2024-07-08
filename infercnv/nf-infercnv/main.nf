@@ -1,42 +1,17 @@
+#!/usr/bin/env nextflow
+
+// using DSL-2
 nextflow.enable.dsl=2
 
-// command line arguments
-params.help               = false
-params.mappings           = null
-params.annotations        = null
-params.gene_order_file    = null
-params.out_dir            = "./"
-params.annotation_col     = "celltype"
-params.analysis_mode      = "subclusters"
-params.cluster_by_groups  = "TRUE"
+// all of the default parameters are being set in `nextflow.config`
 
-// help
+// import functions / modules / subworkflows / workflows
+include { validateParameters; paramsHelp; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
+
+// print help message, supply typical command line usage for the pipeline
 if (params.help) {
-  help = \
-  """
-  |infercnv.nf: run inferCNV
-  |
-  |Required arguments:
-  |   --mappings        Path to the mappings CSV file, with columns `id` and 
-  |                     `raw_counts_matrix`.
-  |   --annotations     Path to the annotations TSV file, with columns `id`,
-  |                     `cell`, and the annotation column (specify with the 
-  |                     --annotation_col argument, default: "celltype")
-  |   --gene_order_file Path to the headerless gene order TSV file, with columns 
-  |                     `gene`, `chr`, `start`, `stop`. See the inferCNV wiki 
-  |                     for details.
-  |
-  |Optional arguments:
-  |   --out_dir         Path to output directory. default is `out/`.
-  |                     [default: ${params.out_dir}]
-  |   --annotation_col  Column of the annotations file to use for defining 
-  |                     groups of cells.
-  |                     [default: ${params.annotation_col}]  
-  """.stripMargin()
-  
-  // print help and exit
-  println(help)
-  exit(0)
+  log.info paramsHelp("nextflow run nf-infercnv --mappings mappings.csv --annotations annotations.tsv --outdir out/")
+  exit 0
 }
 
 // perform infercnv on each sample
@@ -46,7 +21,7 @@ process infercnv {
   label "week16core60gb"
   errorStrategy = "retry"
   publishDir(
-    path: "${params.out_dir}/${meta.id}", 
+    path: "${params.outdir}/${meta.id}", 
     mode: "copy",
     saveAs: { fn -> fn.substring(fn.lastIndexOf("/")+1) }
   ) 
@@ -69,9 +44,10 @@ process infercnv {
     
     # generate annotations file
     annotations <- read.delim("${annotations}")
-    annotations <- annotations[c("cell", "${params.annotation_col}"), 
-                               annotations\$id == "${meta.id}"]
-    write.delim(annotations, "annotations.tsv", col_names = F)
+    annotations <- annotations[annotations\$id == "${meta.id}",
+                               c("cell", "${params.annotation_col}")]
+    write.table(annotations, "formatted_annotations.tsv", col.names = F, 
+                quote = F, row.names = F, sep = "\t")
     
     # subset matrix to cells in the sample
     raw_counts_matrix <- readRDS("${raw_counts_matrix}")
@@ -82,12 +58,12 @@ process infercnv {
     infercnv_obj <-
         infercnv::CreateInfercnvObject(
             raw_counts_matrix = raw_counts_matrix,
-            annotations_file = "annotations.tsv",
+            annotations_file = "formatted_annotations.tsv",
             gene_order_file = "${gene_order_file}",
             ref_group_names = NULL)
     
     # run infercnv 
-    # (parameters taken from mp34)
+    # (parameters recommended by mp34@sanger.ac.uk)
     # (/lustre/scratch126/casm/team268im/mp34/analysis/synovium_scRNA/infercnv_analysis.R)
     options(scipen = 100)
     infercnv_obj <-

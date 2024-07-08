@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com//master/nextflow_schema.json",
+  "title": " pipeline parameters",
+  "description": "",
+  "type": "object",
+  "definitions": {
+    "generic_options": {
+      "title": "Generic options",
+      "type": "object",
+      "fa_icon": "fas fa-file-import",
+      "description": "Less common options for the pipeline, typically set in a config file.",
+      "help_text": "These options are common to all nf-core pipelines and allow you to customise some of the core preferences for how the pipeline runs.\n\nTypically these options would be set in a Nextflow config file loaded for all pipeline runs, such as `~/.nextflow/config`.",
+      "properties": {
+        "help": {
+          "type": "boolean",
+          "description": "Display help text.",
+          "fa_icon": "fas fa-question-circle",
+          "hidden": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/definitions/generic_options"
+    }
+  ],
+  "properties": {
+    "mappings": {
+      "type": "string",
+      "description": "Path to the mappings CSV file, with columns \"id\" and \"raw_counts_matrix\"."
+    },
+    "annotations": {
+      "type": "string",
+      "description": "Path to the annotations TSV file, with columns \"id\", \"cell\", and the annotation column (set by --annotation_col, default: \"celltype\")."
+    },
+    "gene_order_file": {
+      "type": "string",
+      "description": "Path to the headerless gene order TSV file, with columns \"gene\", \"chr\", \"start\", \"stop\". See the inferCNV wiki for details."
+    },
+    "outdir": {
+      "type": "string",
+      "description": "Path to the output directory."
+    },
+    "annotation_col": {
+      "type": "string",
+      "default": "celltype",
+      "description": "Column of the annotations file to use for defining groups of cells."
+    },
+    "analysis_mode": {
+      "type": "string",
+      "default": "subclusters",
+      "description": "Analysis mode used to run inferCNV.",
+      "enum": ["subclusters", "samples", "cells"]
+    },
+    "cluster_by_groups": {
+      "type": "string",
+      "default": "TRUE",
+      "enum": ["TRUE", "T", "FALSE", "F"],
+      "description": "Cluster inferCNV output by groups, according to their annotations?"
+    }
+  },
+  "required": [
+    "out_dir",
+    "gene_order_file",
+    "annotations",
+    "mappings",
+    "annotation_col",
+    "cluster_by_groups",
+    "analysis_mode"
+  ]
+}
