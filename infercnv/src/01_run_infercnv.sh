@@ -17,7 +17,7 @@ mkdir out/Zhang2023/all_fibroblasts/
 # generate annotations, filter to only fibroblasts
 cat data/Zhang2023/annotations.tsv |
 awk -F'\t' -v OFS="\t" \
-  '{if ((NR == 1) || (($2 == "Stromal cell") && $3 ~ /^F-/)) {print $1,$2,$3,"all"} }' \
+  '{if (NR == 1) {print $1,$2,$3,"id"} ; if(($2 == "Stromal cell") && $3 ~ /^F-/) {print $1,$2,$3,"all"} }' \
 > out/Zhang2023/all_fibroblasts/annotations.tsv
 
 # generate mappings for all
@@ -28,7 +28,7 @@ nextflow run nf-infercnv \
   --out_dir out/Zhang2023/all_fibroblasts/ \
   --mappings out/Zhang2023/all_fibroblasts/mappings.csv \
   --annotations out/Zhang2023/all_fibroblasts/annotations.tsv \
-  --annotation_col all \
+  --annotation_col id \
   --analysis_mode subclusters \
   --cluster_by_groups FALSE \
   -c config/infercnv.config \

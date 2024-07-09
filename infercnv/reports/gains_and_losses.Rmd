@@ -53,40 +53,42 @@ First, we load the CITE-seq object. We convert it to a SingleCellExperiment obje
 ```{r load_sce, results = "asis", class.source = "fold-show"}
 # load gene coords
 coords <-
-  readr::read_tsv("data/hg38_gencode_v27.txt", col_names = c("name", "chr", "start", "stop"))
+  "data/hg38_gencode_v27.txt" %>%
+  readr::read_tsv(col_names = c("name", "chr", "start", "stop"))
 
 # load CTAP and metadata
 ctap <-
-  readr::read_tsv("data/Zhang2023/syn26710600/CTAP_donor_mapping.tsv") %>%
+  "data/Zhang2023/syn26710600/CTAP_donor_mapping.tsv" %>%
+  readr::read_tsv() %>%
   dplyr::select(sample = donor, CTAP)
-md <- 
-  readr::read_tsv("data/Zhang2023/syn26710600/SYNAPSE_METADATA_MANIFEST.tsv") %>%
+md <-
+  "data/Zhang2023/syn26710600/SYNAPSE_METADATA_MANIFEST.tsv" %>%
+  readr::read_tsv() %>%
   dplyr::distinct()
 
-# load sce, add inferCNV 
+# load sce, add inferCNV
 sce <- xfun::cache_rds({
 
   # load sce
   sce <- readRDS(params$sce)
 
   # get cnv metadata
-  cnvs <- 
-    list.files(
-      params$infercnv_dir,
-      pattern = "map_metadata_from_infercnv.txt",
-      recursive = T) %>%
+  cnvs <-
+    list.files(params$infercnv_dir, pattern = "map_metadata_from_infercnv.txt",
+               recursive = TRUE) %>%
     purrr::set_names(., dirname(.)) %>%
     purrr::map(function(file) {
-      file.path(params$infercnv_dir, file) %>% 
+      file.path(params$infercnv_dir, file) %>%
         read.table(sep = "\t")
-      }) %>%
+    }) %>%
     dplyr::bind_rows() %>%
-    dplyr::mutate(infercnv = T)
-  
+    dplyr::mutate(infercnv = TRUE)
+
   # left join cnvs to coldata, reorder, restore rownames
-  col_data <- merge(sce@colData, cnvs, by = "row.names", all.x = T, sort = F)
+  col_data <- merge(sce@colData, cnvs, by = "row.names", all.x = TRUE,
+                    sort = FALSE)
   rownames(col_data) <- col_data[, 1]
-  col_data <- 
+  col_data <-
     col_data[colnames(sce), -1] %>%
     DataFrame()
 
@@ -101,7 +103,7 @@ sce <- xfun::cache_rds({
 # remove NA's for inferCNV analysis
 sce <- sce[, !is.na(sce$proportion_cnv_chr1)]
 
- # assign cell group
+# assign cell group
 sce@colData$cell_group <-
   sce@colData[, params$cell_group_name]
 ```
@@ -138,7 +140,7 @@ As well as aneuploidy, we want to look for smaller recurrent structural changes,
 cnv_regions <- xfun::cache_rds({
 
   # get HMM predictions
-  cnv_regions <- 
+  cnv_regions <-
     list.files(
       params$infercnv_dir,
       pattern = "HMM_CNV_predictions.HMMi6.leiden.hmm_mode-subclusters.Pnorm_0.5.pred_cnv_regions.dat",

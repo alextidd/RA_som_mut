@@ -24,7 +24,7 @@ params:
 ---
 
 ```{r setup, include = F, message = F, warning = F, class.source = "fold-hide"}
-# module load R/4.4.0 ; Rscript -e "rmarkdown::render("reports/paper_figures.Rmd", output_dir = "out/paper_figures/")" # nolint: line_length_linter.
+# module load R/4.4.0 ; Rscript -e 'rmarkdown::render("reports/paper_figures.Rmd", output_dir = "out/paper_figures/")' # nolint: line_length_linter.
 
 # libraries
 library(magrittr)
@@ -175,756 +175,77 @@ fact that we set `ref_group_names = NULL`. This compounds the effect of the
 number of cells on the ability to detect CNVs (the false negative rate), 
 because...
 
-1. fewer cells makes it less likely to capture these somewhat rare events
+1. having fewer cells makes it less likely to capture these somewhat rare events
 
-2. fewer cells makes the reference profile noisier and less representative of 
-the 'baseline' expression levels across chromosomes, further limiting CNV 
-calling
+2. having fewer cells makes the reference profile noisier and less
+representative of the 'baseline' expression levels across chromosomes, further
+limiting CNV calling
 
 Keeping this in mind, we will proceed.
 
-## Cell type compositions
+# Plot 1 - chr7, chr5, and chr3 barplots by sample
 
-```{r ct_comp, fig.width = 12, fig.height = 7}
-p_dat <-
-  sce@colData %>%
-  tibble::as_tibble() %>%
-  dplyr::mutate(
-    sample = forcats::fct_infreq(sample),
-    cell_group = forcats::fct_rev(forcats::fct_infreq(cell_group))) %>%
-  dplyr::add_count(sample, cell_group, name = "n_sample_x_cell_group") %>%
-  dplyr::add_count(cell_group, name = "n_cell_group")
-p_base <-
-  p_dat %>%
-  ggplot(aes(fill = cell_group, colour = cell_group)) +
-  scale_fill_manual(values = dittoSeq::dittoColors()) +
-  scale_colour_manual(values = dittoSeq::dittoColors())
-p1 <- 
-  p_base +
-  geom_point(aes(x = sample, y = cell_group,
-                 alpha = n_sample_x_cell_group, size = n_sample_x_cell_group)) +
-  theme_classic() +
-  theme(legend.position = "none",
-        axis.text.x = element_text(size = 7)) +
-  scale_x_discrete(guide = guide_axis(angle = -90)) +
-  labs(y = params$cell_group_name)
-p2 <- 
-  p_base +
-  geom_bar(aes(x = sample), position = "stack") +
-  theme_void() +
-  theme(legend.position = "none",
-        axis.text.y = element_text()) 
-p3 <-
-  p_base +
-  geom_bar(aes(y = cell_group), position = "stack") +
-  geom_text(
-    data = p_dat %>% dplyr::distinct(cell_group, n_cell_group),
-    aes(x = n_cell_group, y = cell_group, 
-        label = format(n_cell_group, nsmall = 1, big.mark = ",")), 
-    hjust = -0.1) +
-  theme_void() +
-  theme(legend.position = "none") +
-  xlim(0, 1.2 * max(p_dat$n_cell_group))
-design <-
-"BB#
-BB#
-AAC"
-
-# plot
-patchwork::wrap_plots(A = p1, B = p2, C = p3, design = design)
-```
-
-## UMAPs
-
-First, we plot UMAPs by cell grouping.
-
-```{r plot_umaps}
-dittoSeq::dittoDimPlot(sce, params$cell_group_name, size = 0.2) +
-  coord_fixed()
-
-pal <-
-  c("T cell" = "#E6AB02",
-    "Stromal cell" = "#66A61E",
-    "Myeloid cell" = "#E7298A",
-    "B cell/plasma cell" = "#7570B3",
-    "Endothelial cell" = "#D95F02",
-    "NK" = "#1B9E77")
-dittoSeq::dittoDimPlot(sce, "cell_type", size = 0.2) +
-  coord_fixed() +
-  scale_colour_manual(values = pal)
-```
-
-Then, we visualise gains and loss proportions for each chromosome on the UMAP. 
-
-```{r plot_chr_gains, fig.width = 10, fig.height = 4, results = "hide"}
-paste0("chr", 1:22) %>% 
-  purrr::map(function(chr) {
-    events <-
-      paste("proportion", c("dupli", "loss"), chr, sep = "_")
-    reducedDim(sce, "UMAP_uwot") %>%
-      cbind(sce@colData[, events]) %>%
-      tibble::as_tibble() %>%
-      tidyr::pivot_longer(3:4) %>%
-      dplyr::arrange(value) %>%
-      ggplot(aes(x = UMAP1, y = UMAP2, colour = value)) + 
-      geom_point(size = 0.1) +
-      coord_fixed() +
-      theme_classic() +
-      scale_color_viridis_c() +
-      facet_grid(~ name) %>%
-      print()
-  })
-```
-
-## Heatmaps
-
-Now, we will plot gain and loss proportions by chromosome.
-
-First, we plot single cell-level CNVs by direction and by celltype.
-
-```{r plot_gains_and_losses_by_ct, results = "hide"}
-# at single-cell level
-sce@colData[, params$cell_group_name] %>%
-  unique() %>%
-  purrr::map(function(cgn) {
-    c("dupli", "loss") %>%
-      purrr::map(function(direction) {
-        p_dat <-
-          sce@colData[sce@colData[, params$cell_group_name] == cgn, ]
-        if (nrow(p_dat) > 0) {
-          p_mat <-
-            p_dat[, grepl(paste0("proportion_", direction), colnames(p_dat))]
-          p_annot <- 
-            p_dat[, c("sample"), drop = F] %>%
-            as.data.frame()
-          pheatmap::pheatmap(
-            p_mat, 
-            show_rownames = F, 
-            annotation_row = p_annot,
-            # hclust error: size cannot be NA nor exceed 65536
-            cluster_rows = ((nrow(p_mat) < 65536) == T),
-            legend = F,
-            main = paste0(params$cell_group_name, ": ", cgn, "\ndirection: ", direction)) %>%
-            print()
-        }
-      })
-  })
-```
-
-We also plot sample-x-celltype level events (mean-summarised). 
-
-```{r plot_gains_and_losses_by_id, fig.width = 12}
-# mean proportion loss / gain per chromosome per celltype per id
-p_dat <-
-  sce@colData %>%
-  tibble::as_tibble() %>%
-  dplyr::mutate(cell_group = get(params$cell_group_name)) %>%
-  dplyr::group_by(sample, cell_group) %>%
-  dplyr::summarise(
-    dplyr::across(dplyr::starts_with("proportion_"), ~ mean(.x, na.rm = T))) %>%
-  dplyr::ungroup() %>%
-  dplyr::mutate(sample_x_cg = paste0(sample, "_", cell_group)) %>%
-  tibble::column_to_rownames("sample_x_cg") 
-
-# split gain and loss
-c("dupli", "loss") %>% 
-  purrr::map(function(direction) {
-    p_mat <-
-      p_dat[, grepl(paste0("proportion_", direction), colnames(p_dat))]
-    p_annot <- 
-      p_dat[, c("sample", "cell_group")] %>%
-      as.data.frame()
-    pheatmap::pheatmap(
-      p_mat, 
-      show_rownames = F, 
-      annotation_row = p_annot,
-      main = paste0("direction: ", direction)) %>%
-      print()
-  })
-```
-
-## chr7 gain
-
-We are most interested in the chr7 gain events in fibroblasts. We visualise their distribution across the dataset. 
-
-```{r chr7_prop_dist}
-# prep data
-p_dat <-
-  sce@colData %>%
-  tibble::as_tibble() %>%
-  dplyr::group_by(sample) %>%
-  dplyr::mutate(n_cells = dplyr::n())
-
-# define functions
-plot_prop_chr7_gain <- function(p_dat, title) {
-  plot_func <- function(p_dat, position_arg) {
-    p_dat %>%
-      ggplot() +
-      geom_bar(aes(x = cell_group, 
-                   fill = proportion_dupli_chr7, 
-                   group = proportion_dupli_chr7),
-               position = position_arg) +
-      scale_x_discrete(guide = guide_axis(angle = -45)) +
-      theme_classic() +
-      scale_fill_viridis_b(n.breaks = 9, limits = c(0, 1)) 
-  }
-  
-  # plot both count (stack) and proportion (fill), annotate n cells
-  list(
-    plot_func(p_dat, position_fill(reverse = T)) +
-      ggtitle(title) +
-      theme(axis.text.x = element_blank(),
-            axis.title.x = element_blank()) +
-      ylab("count"),
-    plot_func(p_dat, position_stack(reverse = T)) +
-      ylab("proportion")) %>%
-    patchwork::wrap_plots(ncol = 1) 
-}
-
-# plot, across all and by patient
-plot_prop_chr7_gain(p_dat, "chr7 gain - all cells")
-p_dat %>%
-  {split(., .$sample)} %>%
-  purrr::walk2(names(.), ., function(id, df) {
-    df %>%
-    plot_prop_chr7_gain(
-      paste0("chr7 gains - ", id, " (", unique(df$n_cells), " cells)")) %>%
-      print()
-  })
-```
-
-# Assigning whole chromosome-level events
-
-Based on the observed distribution of `proportion_dupli_chr7` values and comparing this with the `inferCNV` heatmaps, whole chromosome gains are defined as `proportion_dupli_chr*` > `r params$min_prop_for_cnv`. Diploidy is defined as `proportion_dupli_chr*` < `r params$max_prop_for_wt`.
-
-```{r assign_gains, class.source = "fold-show"}
-sce <- xfun::cache_rds({
-  
-  # apply cut-offs for whole chr gains and losses
-  paste0("chr", 1:22) %>%
-    purrr::walk(function(chr) {
-      chr_dupli <-
-        sce@colData[, paste0("proportion_dupli_", chr)]
-      sce@colData[, paste0(chr, "_gain")] <<-
-        ifelse(chr_dupli > params$min_prop_for_cnv, 1, 
-               ifelse(chr_dupli < params$max_prop_for_wt, 0, 
-                      NA))
-      chr_loss <-
-        sce@colData[, paste0("proportion_loss_", chr)]
-      sce@colData[, paste0(chr, "_loss")] <<-
-        ifelse(chr_loss > params$min_prop_for_cnv, 1, 
-               ifelse(chr_loss < params$max_prop_for_wt, 0, 
-                      NA))
-    })
-  
-  # return
-  sce 
-  
-}, file = "sce_w_gains.rds", rerun = params$rerun)
-```
-
-```{r plot_heatmap, fig.width = 10, fig.height = 5}
-event_cols <-
-  c("WT" = "grey",
-    "chr5_gain" = "#e7298a",
-    "chr5_gain,chr7_gain" = "#d95f02",
-    "chr7_gain" = "#e6ab02")
-
-p_dat <-
-  sce@colData %>%
-  tibble::as_tibble() %>%
-  dplyr::select(sample, cell, 
-                dplyr::ends_with("_gain"), 
-                dplyr::ends_with("_loss")) %>%
-  tidyr::pivot_longer(-c("sample", "cell")) %>%
-  dplyr::filter(name %in% c("chr7_gain", "chr5_gain")) %>%
-  dplyr::group_by(sample, cell) %>%
-  # remove cells in which no calls made
-  dplyr::filter(!all(is.na(value))) %>%
-  dplyr::mutate(
-    event = dplyr::case_when(
-      all(value == 0 | is.na(value)) ~ "WT",
-      value == 1 ~ name,
-      TRUE ~ NA)) %>%
-  dplyr::summarise(
-    events = paste(sort(unique(na.omit(event))), collapse = ",")) %>%
-  dplyr::mutate(events = forcats::fct_relevel(events, names(event_cols))) %>%
-  # get n aneuploid for plot ordering
-  dplyr::group_by(sample) %>%
-  dplyr::mutate(prop_aneuploid = sum(events != "WT") / dplyr::n()) %>%
-  # count
-  dplyr::group_by(sample, prop_aneuploid) %>%
-  dplyr::count(events) %>%
-  # for fill and stack
-  tidyr::crossing(tibble::tibble(plot = c("% cells", "n cells"))) 
-
-# plot
-p_dat %>%
-  ggplot(aes(x = reorder(sample, -prop_aneuploid), y = n, fill = events)) +
-  geom_col(data = p_dat %>% dplyr::filter(plot == "% cells"),
-           position = "fill") +
-  geom_col(data = p_dat %>% dplyr::filter(plot == "n cells"),
-           position = "stack") +
-  theme_classic() +
-  ggh4x::facet_grid2(plot ~ ., scales = "free_y", independent = "y") +
-  scale_x_discrete(guide = guide_axis(angle = -90)) +
-  scale_y_continuous(expand = c(0, 0)) +
-  scale_fill_manual(values = event_cols) +
-  theme(axis.title = element_blank(),
-        axis.text.x = element_text(size = 6))
-```
-
-## Co-occurence of CNV events
-
-We also can observe the rate co-occurence of chr7+ and other CNVs. The LCM-WES data suggested a nested relationship in which there were chr5+ subclones within chr7+ populations. We look for this here.
-
-```{r chr7_and_others}
-events <-
-  sce@colData %>%
-  tibble::as_tibble() %>%
-  dplyr::select(sample, cell, cell_group, 
-                dplyr::ends_with("_gain"), 
-                dplyr::ends_with("_loss")) %>%
-  tidyr::pivot_longer(-c("sample", "cell", "cell_group")) %>%
-  dplyr::group_by(sample, cell, cell_group) %>%
-  # remove cells in which no calls made
-  dplyr::filter(!all(is.na(value))) %>%
-  dplyr::mutate(
-    event = dplyr::case_when(
-      all(value == 0 | is.na(value)) ~ "WT",
-      value == 1 ~ name,
-      TRUE ~ NA)) %>%
-  dplyr::summarise(
-    events = paste(sort(unique(na.omit(event))), collapse = ","),
-    n_events = sum(value, na.rm = T))
-
-p_dat <-
-  events %>%
-  dplyr::ungroup() %>%
-  dplyr::add_count(events) %>%
-  dplyr::mutate(prop = n / dplyr::n()) %>%
-  # ignore events that happen in <= 25 cells
-  dplyr::filter(events != "WT", n >= 25) %>%
-  dplyr::mutate(
-    events = events %>% 
-      gsub("chr", "", .) %>% 
-      gsub("_gain", "+", .) %>%
-      gsub("_loss", "-", .),
-    events = forcats::fct_infreq(events),
-    label1 = scales::label_comma()(n), 
-    label = dplyr::case_when(
-      n < 10 ~ label1,
-      TRUE ~ paste0(label1, " (", round(prop*100, 2), "%)")
-    ))
-
-# plot
+```{r}
 p <-
-  p_dat %>%
-  ggplot(aes(x = events)) +
-  geom_text(aes(y = n,  label = label), 
-            vjust = 0.5, hjust = 0, angle = 90, size = 2) +
-  scale_x_discrete(guide = guide_axis(angle = -90)) +
-  ylim(c(0, max(p_dat$n) * 1.1)) +
-  theme_classic() +
-  theme(legend.position = "bottom")
-p + 
-  geom_bar(aes(fill = sample))
-p + 
-  geom_bar(aes(fill = cell_group)) +
-  theme(legend.position = "none")
-```
-
-### Fisher exact test
-
-Here is a contingency table of the frequency of chr7+ versus chr5+ within cells.
-
-```{r cont_tab}
-cont <-
   sce@colData %>%
   tibble::as_tibble() %>%
-  dplyr::mutate(chr7 = ifelse(chr7_gain == 1, "chr7+", "chr7_WT"),
-                chr5 = ifelse(chr5_gain == 1, "chr5+", "chr5_WT")) 
-table(cont$chr7, cont$chr5) %>%
-  knitr::kable()
-```
-
-We can run a Fisher exact test to test whether chr7+ and chr5+ gains co-occur more often than would be expected by chance, and also test all other co-occurent CNV relationships.
-
-```{r fisher_exact}
-fisher <- xfun::cache_rds({
-  
-  fisher <-
-    colnames(sce@colData)[grepl("_gain$|_loss$", colnames(sce@colData))] %>%
-    purrr::set_names() %>%
-    purrr::map(function(event) {
-      
-      event_vec <- sce@colData[, event, drop = T]
-      
-      if (1 %in% event_vec) {
-        
-        # run fisher exact test
-        fisher <- fisher.test(sce$chr7_gain, event_vec)
-        
-        # get contingencies
-        cont <-
-          table(sce@colData[, c("chr7_gain", event)]) 
-        
-         # return relevant stats
-        tibble::tibble(
-          OR = fisher$estimate, 
-          p = fisher$p.value,
-          sig = ifelse(fisher$p.value < 0.05, "*", ""),
-          n_WT = cont[1, 1],
-          n_chr7_gain = cont[2, 1],
-          n_event = cont[1, 2],
-          n_both = cont[2, 2])
-        
-      } else {
-        
-        # no event
-        tibble::tibble()
-      }
-      
-    }) %>%
-    dplyr::bind_rows(.id = "event") %>%
-    # remove chr7+ (can't do chr7+ vs chr7+)
-    dplyr::filter(event != "chr7_gain", n_event > 0) %>%
-    dplyr::arrange(p)
-  
-  # return
-  fisher
-  
-}, file = "fisher.rds", rerun = T)
-
-fisher %>%
-  dplyr::mutate(p = format(p, digits = 3)) %>%
-  knitr::kable()
-```
-
-### GLM
-
-We can also run a GLM. 
-
-```{r glm}
-# read in metadata
-metadata <-
-  readr::read_tsv(params$metadata)
-
-# create glm
-# prop_chr7_gain ~ age (+ coverage) (per donor)
-for_glm <-
-  dplyr::inner_join(
-    tibble::as_tibble(sce@colData), 
-    metadata, 
-    by = c("sample" = "id")) %>%
-  dplyr::filter(!is.na(age), !is.na(chr7_gain)) %>%
-  dplyr::group_by(sample, age, CTAP, sex, race, ethnicity) %>%
-  dplyr::summarise(n_chr7_gain = sum(chr7_gain),
-                   n_cells = dplyr::n(),
-                   ch7_gain_prop = n_chr7_gain / n_cells) 
-
-for_glm %>%
-  {glm(.$n_chr7_gain ~ log(.$n_cells) + .$age)}
-```
-
-```{r plot_glm_vars}
-# n cells vs n chr7 gain
-for_glm %>%
-  ggplot(aes(x = n_cells, y = n_chr7_gain)) +
-  geom_point() +
-  theme_classic()
-
-# age vs prop chr7 gain
-for_glm %>%
-  ggplot(aes(x = age, y = ch7_gain_prop)) +
-  geom_point() +
-  theme_classic()
-
-# all categorical variables
-for_glm %>%
-  tidyr::pivot_longer(cols = c("CTAP", "sex", "race", "ethnicity")) %>%
-  dplyr::group_by(name, value) %>%
-  dplyr::mutate(med = median(ch7_gain_prop)) %>%
-  ggplot(aes(
-    x = tidytext::reorder_within(value, by = med, within = name), 
-    y = ch7_gain_prop)) +
-  geom_boxplot() +
-  geom_jitter(height = 0) +
-  facet_wrap(~ name, nrow = 1, scales = "free") +
-  tidytext::scale_x_reordered(guide = guide_axis(angle = -45)) +
+  dplyr::add_count(sample) %>%
+  tidyr::pivot_longer(cols = c("chr7_gain", "chr5_gain", "chr3_gain")) %>%
+  dplyr::filter(!is.na(value)) %>%
+  dplyr::mutate(value = as.character(value)) %>%
+  ggplot(aes(x = reorder(sample, -n), fill = value)) +
+  scale_x_discrete(guide = guide_axis(angle = -90)) +
   theme_classic() +
-  labs(x = "")
-
-# looking by cluster
-for_glm_w_cluster <-
-  dplyr::inner_join(
-    tibble::as_tibble(sce@colData), 
-    metadata, 
-    by = c("sample" = "id")) %>%
-  dplyr::filter(!is.na(age), !is.na(chr7_gain)) %>%
-  dplyr::group_by(
-    sample, age, CTAP, sex, race, ethnicity, cluster_name) %>%
-  dplyr::summarise(n_chr7_gain = sum(chr7_gain),
-                   n_cells = dplyr::n(),
-                   ch7_gain_prop = n_chr7_gain / n_cells) 
-for_glm_w_cluster %>%
-  ggplot(aes(x = cluster_name, y = ch7_gain_prop)) +
-  geom_violin() +
-  geom_jitter(height = 0) +
-  theme_classic() +
-  scale_x_discrete(guide = guide_axis(angle = -45))
+  scale_fill_brewer(palette = "Dark2") +
+  facet_grid(name ~ .)
+p + geom_bar() + labs(x = "sample", y = "n cells")
+p + geom_bar(position = "fill") + labs(x = "sample", y = "proportion of cells")
 ```
 
-# Pseudobulking and DGEA
+# Plot 2 - chr7, chr5, and chr3 barplots by celltype
 
-We pseudobulk chr7+ cells and perform differential expression analysis. In order to do this, we use the `glmGamPoi` package in R. This analysis follows a [tutorial](https://bioconductor.org/packages/devel/bioc/vignettes/glmGamPoi/inst/doc/pseudobulk.html) and the [glmGamPoi GitHub](https://github.com/const-ae/glmGamPoi).
-
-We will pseudobulk by patient, cell group, and chr7 ploidy to produce a reduced object.
-
-```{r chr7_gain_prop, results = "asis"}
-dat <-
-  tibble::tibble(chr7_gain_value = sce$chr7_gain,
-               cell_group = sce$cell_group) %>%
+```{r}
+cnvs <-
+  "out/Zhang2023/by_celltype/summary/gains_and_losses_cache/" %>%
+  list.files(pattern = "cnvs", full.names = TRUE) %>%
+  readRDS()
+p <-
+  cnvs %>%
+  dplyr::filter(event == "dupli", measure == "proportion",
+                (value < 0.5 | value > 0.8),
+                chr %in% c("chr7", "chr5", "chr3")) %>%
   dplyr::mutate(
-    chr7_gain_status = dplyr::case_when(
-      is.na(chr7_gain_value) ~ "unknown/intermediate",
-      chr7_gain_value == 0 ~ "WT",
-      chr7_gain_value == 1 ~ "gain")
-  ) 
-
-cat("Counts and proportions of chr7 gain, all cells")
-dat %>%
-  dplyr::mutate(n_cells = dplyr::n()) %>%
-  dplyr::group_by(chr7_gain_status, n_cells) %>%
-  dplyr::summarise(n = dplyr::n(),
-                   `%` = 100 * dplyr::n() / unique(n_cells)) %>%
-  knitr::kable()
-
-cat("Counts and proportions of chr7 gain, by cell group")
-dat %>%
-  dplyr::group_by(cell_group) %>%
-  dplyr::mutate(n_cells = dplyr::n()) %>%
-  dplyr::group_by(cell_group, chr7_gain_status, n_cells) %>%
-  dplyr::summarise(n = dplyr::n(),
-                   `%` = 100 * dplyr::n() / unique(n_cells)) %>%
-  knitr::kable()
-```
-
-```{r pseudobulk_chr7_gain, class.source = "fold-show"}
-reduced_sce <- xfun::cache_rds({
-  
-  # pseudobulk the sce object by patient, cell group and chr7 ploidy
-  # (exclude intermediate chr7 values)
-  reduced_sce <-
-    glmGamPoi::pseudobulk(
-      sce[, !is.na(sce$sample) & 
-            !is.na(sce$chr7_gain) &
-            !is.na(sce$cell_group)], 
-      group_by = vars(sample, cell_group, chr7_gain)
-    )
-  
-  # return
-  reduced_sce
-  
-}, file = "reduced_sce.rds", rerun = params$rerun)
-```
-
-With the reduced data, we can conduct differential expression analysis, treating the data like bulk RNA-seq data. 
-
-We will identify which genes in stromal cells are changed most by chr7 gain. We do this by fitting one GLM model for each gene, with the chr7 status, cell group and patient as factors.
-
-```{r deseq, message = T}
-# fit one GLM model for each gene
-fit <- xfun::cache_rds({
-  fit <-
-    glmGamPoi::glm_gp(
-      reduced_sce,
-      design = ~ chr7_gain + sample + cell_group,
-      verbose = T
-    )
-  fit
-}, file = "fit.rds", rerun = params$rerun)
-
-# show model output
-summary(fit)
-```
-
-Next, we test for differential gene expression.
-
-```{r test_ge}
-# minimum accepted adj_pval
-min_p <- 0.05
-
-# get differential expression
-de_res <- xfun::cache_rds({
-  
-  # test differences
-  de_res <-
-    glmGamPoi::test_de(
-      fit, 
-      contrast = 
-        cond(chr7_gain = 1) -
-        cond(chr7_gain = 0)
-    )
-  
-  # define significant up/downregulation and position
-  de_res <-
-    de_res %>% 
-    tibble::as_tibble() %>%
-    dplyr::mutate(
-      direction = dplyr::case_when(
-        lfc < -1.5 & adj_pval < min_p ~ "downregulated",
-        lfc > 1.5 & adj_pval < min_p ~ "upregulated",
-        TRUE ~ NA)) %>%
-    dplyr::left_join(coords)
-  
-  # return
-  de_res
-  
-}, file = "de_res.rds", rerun = params$rerun)
-```
-
-```{r plot_de}
-de_res %>%
-  ggplot(aes(x = lfc, y = -log10(adj_pval), colour = direction, 
-             size = chr == "chr7", shape = chr == "chr7")) +
-  geom_point() +
-  geom_hline(yintercept = -log10(min_p), linetype = "dashed") +
-  geom_vline(xintercept = c(log2(1.5), log2(2)), linetype = "dashed", colour = "purple") +
-  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed") +
-  ggrepel::geom_text_repel(
-    data = 
-      de_res %>% 
-      dplyr::filter(!is.na(direction)) %>%
-      dplyr::group_by(direction) %>%
-      dplyr::filter(rank(adj_pval) <= 10 | rank(lfc, ties.method = "min") <= 10),
-    aes(label = name),
-    min.segment.length = 0, nudge_x = 0.7, show.legend = F) +
+    value = dplyr::case_when(value <= 0.5 ~ 0, value >= 0.8 ~ 1) %>% 
+      as.character()) %>%
+  ggplot(aes(x = cell_type, fill = value)) +
   theme_classic() +
-  scale_colour_manual(values = c("upregulated" = "darkred",
-                                 "downregulated" = "darkblue"), 
-                      na.value = "darkgrey") +
-  scale_size_manual(values = c("TRUE" = 3, "FALSE" = 2), na.value = 2) +
-  scale_shape_manual(values = c("TRUE" = 55, "FALSE" = 16), na.value = 16)
+  facet_grid(chr ~ .) +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_x_discrete(guide = guide_axis(angle = -45))
+p + geom_bar()
+p + geom_bar(position = "fill") + ylab("proportion")
 ```
 
-```{r plot_de_close}
-min_p_non_chr7 <-
-  de_res %>%
-  dplyr::filter(!is.na(direction)) %>%
-  dplyr::pull(adj_pval) %>% 
-  min()
-de_res %>%
-  ggplot(aes(x = lfc, y = -log10(adj_pval), colour = direction, 
-             size = chr == "chr7", shape = chr == "chr7")) +
-  geom_point() +
-  geom_hline(yintercept = -log10(min_p), linetype = "dashed") +
-  geom_vline(xintercept = c(log2(1.5), log2(2)), linetype = "dashed", colour = "purple") +
-  geom_vline(xintercept = c(-1.5, 1.5), linetype = "dashed") +
-  ggrepel::geom_text_repel(
-    data = 
-      de_res %>% 
-      dplyr::filter(!is.na(direction)) %>%
-      dplyr::group_by(direction) %>%
-      dplyr::filter(rank(adj_pval) <= 10 | rank(lfc, ties.method = "min") <= 10),
-    aes(label = name),
-    min.segment.length = 0, nudge_x = 0.7, show.legend = F) +
-  theme_classic() +
-  scale_colour_manual(values = c("upregulated" = "darkred",
-                                 "downregulated" = "darkblue"), 
-                      na.value = "darkgrey") +
-  scale_size_manual(values = c("TRUE" = 5, "FALSE" = 4), na.value = 4) +
-  scale_shape_manual(values = c("TRUE" = 55, "FALSE" = 16), na.value = 16) +
-  ylim(0, -log10(min_p_non_chr7) * 1.03)
+# Plot 3 - number of transcripts per cell vs CNVs
+
+Next, we look at the distribution of the the number of transcripts in cells in 
+which chr7 gain has been detected versus those without. If the distribution is 
+greatly skewed in one or the other, this would suggest that this technical 
+variate is strongly affecting the performance of `inferCNV` between cells.
+
+```{r}
+colSums(sce@assays@data$counts) %>%
+  tibble::enframe(name = "cell", value = "n_transcripts") %>%
+  dplyr::inner_join(sce@colData %>% tibble::as_tibble()) %>%
+  dplyr::filter(!is.na(chr7_gain)) %>%
+  dplyr::mutate(chr7_gain = as.character(chr7_gain)) %>%
+  ggplot(aes(x = n_transcripts, fill = chr7_gain)) +
+  geom_histogram(alpha = 0.5) +
+  theme_classic()
 ```
 
-These are the most strongly upregulated genes:
+The distributions appear to be sensible. 
 
-```{r get_downreg_degs}
-de_res %>%
-  tibble::as_tibble() %>% 
-  dplyr::filter(adj_pval < 0.01) %>%
-  dplyr::arrange(-lfc, adj_pval) %>%
-  head(10) %>%
-  knitr::kable()
-```
+# Plot 3 - inferCNV plot with all individuals together
 
-These are the most strongly downregulated genes:
-
-```{r get_upreg_degs}
-de_res %>%
-  tibble::as_tibble() %>% 
-  dplyr::filter(adj_pval < 0.01) %>%
-  dplyr::arrange(lfc, adj_pval) %>%
-  head(10) %>%
-  knitr::kable()
-```
-
-# Figures for the paper
-
-```{r n_fibroblasts_dist}
-
-```
-
-# Cell group markers
-
-We convert the `SingleCellExperiment` object to a `Seurat` object in order to find the top markers of each cell group.
-
-```{r exit}
-knitr::knit_exit()
-```
-
-```{r sce_to_seu}
-
-seu <- xfun::cache_rds({
-  seu <- Seurat::as.Seurat(sce)
-  Seurat::Idents(seu) <- seu$cell_group
-  seu <- Seurat::ScaleData(seu)
-  seu
-}, file = "seu.rds", rerun = params$rerun)
-```
-
-Now, we find all differentially expressed genes for each cell group.
-
-```{r markers}
-markers <- xfun::cache_rds({
-  markers <-
-    Seurat::FindAllMarkers(seu)
-  markers
-}, file = "markers.rds", rerun = params$rerun)
-```
-
-```{r inspect_markers, fig.height = 10, fig.width = 10}
-top2 <-
-  markers %>%
-  tibble::as_tibble() %>% 
-  dplyr::filter(p_val_adj < 0.01, avg_log2FC > 1.5) %>% 
-  dplyr::group_by(cluster) %>% 
-  dplyr::slice_max(order_by = avg_log2FC, n = 2)
-unique(top2$cluster) %>%
-  purrr::walk(function(cg) {
-    genes <- 
-      top2 %>% 
-      dplyr::filter(cluster == cg) %>% 
-      dplyr::pull(gene)
-    list(
-      Seurat::VlnPlot(seu, features = genes),
-      Seurat::FeaturePlot(seu, features = genes, label = T) + coord_fixed()) %>%
-      patchwork::wrap_plots(nrow = 2) +
-      patchwork::plot_annotation(
-        title = paste0(params$cell_group_name, ": ", cg)) %>%
-      print()
-  })
-```
-
-```{r marker_heatmap, fig.height = 10, fig.width = 10}
-top10 <-
-  markers %>%
-  dplyr::group_by(cluster) %>%
-  dplyr::filter(avg_log2FC > 1) %>%
-  dplyr::slice_max(order_by = avg_log2FC, n = 100) %>%
-  dplyr::ungroup()
-Seurat::DoHeatmap(seu, features = top10$gene) + 
-  Seurat::NoLegend()
-```
 
