@@ -19,55 +19,476 @@
           "hidden": true
         }
       }
+    },
+    "input_output_options": {
+      "title": "Input/output options",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "mappings": {
+          "type": "string",
+          "description": "Path to the mappings CSV file, with columns \"id\" and \"raw_counts_matrix\"."
+        },
+        "annotations": {
+          "type": "string",
+          "description": "Path to the annotations TSV file, with columns \"id\", \"cell\", and the annotation column (set by --annotation_col, default: \"celltype\")."
+        },
+        "gene_order_file": {
+          "type": "string",
+          "description": "Path to the headerless gene order TSV file, with columns \"gene\", \"chr\", \"start\", \"stop\". See the inferCNV wiki for details."
+        },
+        "outdir": {
+          "type": "string",
+          "description": "Path to the output directory."
+        },
+        "annotation_col": {
+          "type": "string",
+          "default": "celltype",
+          "description": "Column of the annotations file to use for defining groups of cells."
+        },
+        "cutoff": {
+          "type": "integer",
+          "description": "A number >= 0 is expected. Cut-off for the min average read counts per gene among reference cells.",
+          "default": 1
+        },
+        "min_cells_per_gene": {
+          "type": "integer",
+          "description": "Minimum number of reference cells requiring  expression measurements to include the  corresponding gene.",
+          "default": 3
+        }
+      },
+      "required": [
+        "mappings",
+        "annotations",
+        "gene_order_file",
+        "annotation_col",
+        "cutoff",
+        "min_cells_per_gene"
+      ]
+    },
+    "smoothing_options": {
+      "title": "Smoothing options",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "window_length": {
+          "type": "integer",
+          "description": "Length of the window for the moving average (smoothing). Should be an odd integer.",
+          "default": 101
+        },
+        "smooth_method": {
+          "type": "string",
+          "description": "Method to use for smoothing.",
+          "default": "pyramidinal",
+          "enum": ["runmeans", "pyramidinal"]
+        },
+        "num_ref_groups": {
+          "type": "string",
+          "description": "The number of reference groups or a list of indices for each group of reference indices in relation to reference_obs."
+        },
+        "ref_subtract_use_mean_bounds": {
+          "type": "boolean",
+          "description": "Determine means separately for each ref group, then remove intensities within bounds of means. Otherwise, uses mean of the means across groups.",
+          "default": true
+        },
+        "cluster_by_groups": {
+          "type": "boolean",
+          "enum": ["TRUE", "T", "FALSE", "F"],
+          "description": "If observations are defined according to groups  (ie. patients), each group of cells will be  clustered separately. (False by default, instead will use k_obs_groups setting)"
+        },
+        "cluster_references": {
+          "type": "boolean",
+          "description": "Whether to cluster references within their annotations or not.",
+          "default": true
+        },
+        "k_obs_groups": {
+          "type": "integer",
+          "description": "Number of groups in which to break the observations.",
+          "default": 1
+        },
+        "hclust_method": {
+          "type": "string",
+          "description": "Method used for hierarchical clustering of cells.",
+          "default": "ward.D2",
+          "enum": [
+            "ward.D",
+            "ward.D2",
+            "single",
+            "complete",
+            "average",
+            "mcquitty",
+            "median",
+            "centroid"
+          ]
+        },
+        "max_centered_threshold": {
+          "type": "number",
+          "description": "The maximum value a value can have after centreing. Also sets a lower bound of -1 * this value.",
+          "default": 3
+        },
+        "scale_data": {
+          "type": "boolean",
+          "description": "Perform Z-scaling of logtransformed data.  This may be turned on if you have very different  kinds of data for your normal and tumor samples.  For example, you need to use GTEx representative  normal expression profiles rather than being able  to leverage normal single cell data that  goes with your experiment."
+        }
+      },
+      "required": [
+        "window_length",
+        "smooth_method",
+        "ref_subtract_use_mean_bounds",
+        "cluster_by_groups",
+        "k_obs_groups",
+        "hclust_method",
+        "max_centered_threshold",
+        "scale_data"
+      ]
+    },
+    "downstream_analyses_hmm_or_non_de_masking_based_on_tumour_subclusters": {
+      "title": "Downstream analyses (HMM or non-DE-masking) based on tumour subclusters",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "HMM": {
+          "type": "boolean",
+          "description": "When set to True, runs HMM to predict CNV level."
+        },
+        "HMM_transition_prob": {
+          "type": "number",
+          "description": "Transition probability in HMM.",
+          "default": 1e-6
+        },
+        "HMM_report_by": {
+          "type": "string",
+          "description": "Note, reporting is performed entirely  separately from the HMM prediction.   So, you can predict on subclusters, but  get per-cell level reporting (more voluminous output).",
+          "default": "subcluster",
+          "enum": ["cell", "consensus", "subcluster"]
+        },
+        "HMM_type": {
+          "type": "string",
+          "description": "HMM model type. Options: (i6 or i3): i6: infercnv 6-state model (0, 0.5, 1,  1.5, 2, >2) where state emissions are  calibrated based on simulated CNV levels.  i3: infercnv 3-state model (del, neutral, amp)  configured based on normal cells and HMM_i3_z_pval.",
+          "enum": ["i6", "i3"]
+        },
+        "HMM_i3_pval": {
+          "type": "number",
+          "description": "p-value for HMM i3 state overlap",
+          "default": 0.05
+        },
+        "HMM_i3_use_KS": {
+          "type": "boolean",
+          "description": "Use the KS test statistic to estimate mean of amp/del distributions (a la HoneyBadger)?",
+          "default": true
+        }
+      },
+      "required": [
+        "HMM",
+        "HMM_transition_prob",
+        "HMM_report_by",
+        "HMM_i3_pval",
+        "HMM_i3_use_KS"
+      ]
+    },
+    "filtering_low_confidence_hmm_predictions_via_bayesnet_p_normal": {
+      "title": "Filtering low confidence HMM predictions via BayesNet P(Normal)",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "BayesMaxPNormal": {
+          "type": "number",
+          "description": "maximum P(Normal) allowed for a CNV prediction according to BayesNet. (note: zero turns it off)",
+          "default": 0.5
+        },
+        "reassignCNVs": {
+          "type": "boolean",
+          "description": "Given the CNV associated probability of belonging to each possible state, reassign the state assignments made by the HMM to the state that has the highest probability.",
+          "default": true
+        }
+      },
+      "required": ["BayesMaxPNormal", "reassignCNVs"]
+    },
+    "tumour_subclustering": {
+      "title": "Tumour subclustering",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "analysis_mode": {
+          "type": "string",
+          "default": "subclusters",
+          "description": "Analysis mode used to run inferCNV. Grouping level for image filtering or HMM predictions. 'samples' is fastest, but 'subclusters' is ideal.",
+          "enum": ["subclusters", "samples", "cells"]
+        },
+        "tumor_subcluster_partition_method": {
+          "type": "string",
+          "description": "method for defining tumor subclusters. leiden: Runs a nearest neighbor search, where communities are then partitionned with the Leiden algorithm. random_trees: Slow, uses permutation statistics w/ tree construction. qnorm: defines tree height based on the quantile defined by the tumor_subcluster_pval.",
+          "default": "leiden",
+          "enum": ["leiden", "random_trees", "qnorm"]
+        },
+        "tumor_subcluster_pval": {
+          "type": "number",
+          "description": "Max p-value for defining a significant tumor subcluster.",
+          "default": 0.01
+        },
+        "k_nn": {
+          "type": "integer",
+          "description": "number k of nearest neighbors to search for when using the Leiden partition method for subclustering.",
+          "default": 20
+        },
+        "leiden_method": {
+          "type": "string",
+          "description": "Method used to generate the graph on which the Leiden algorithm is applied.",
+          "default": "PCA",
+          "enum": ["PCA", "simple"]
+        },
+        "leiden_function": {
+          "type": "string",
+          "description": "Whether to use the Constant Potts Model (CPM) or modularity in igraph.",
+          "default": "CPM",
+          "enum": ["CPM", "modularity"]
+        },
+        "leiden_resolution": {
+          "type": "number",
+          "description": "Resolution parameter for the Leiden algorithm using the CPM quality score.",
+          "default": 0.05
+        },
+        "leiden_method_per_chr": {
+          "type": "string",
+          "description": "Method used to generate the graph on which the Leiden algorithm is applied for the per chromosome subclustering.",
+          "default": "simple",
+          "enum": ["simple", "PCA"]
+        },
+        "leiden_function_per_chr": {
+          "type": "string",
+          "description": "Whether to use the Constant Potts Model (CPM) or modularity in igraph for the per chromosome subclustering.",
+          "default": "modularity",
+          "enum": ["modularity", "CPM"]
+        },
+        "leiden_resolution_per_chr": {
+          "type": "number",
+          "description": "Resolution parameter for the Leiden algorithm for the per chromosome subclustering.",
+          "default": 1
+        },
+        "per_chr_hmm_subclusters": {
+          "type": "boolean",
+          "description": "Run subclustering per chromosome over all cells combined to run the HMM on those subclusters instead."
+        },
+        "per_chr_hmm_subclusters_references": {
+          "type": "boolean",
+          "description": "Whether the per chromosome subclustering should also be done on references, which should not have as much variation as observations."
+        },
+        "z_score_filter": {
+          "type": "number",
+          "description": "Z-score used as a threshold to filter genes used for subclustering. Applied based on reference genes to automatically ignore genes with high expression variability such as MHC genes.",
+          "default": 0.8
+        }
+      },
+      "required": [
+        "analysis_mode",
+        "tumor_subcluster_partition_method",
+        "tumor_subcluster_pval",
+        "k_nn",
+        "leiden_method",
+        "leiden_function",
+        "leiden_resolution",
+        "leiden_method_per_chr",
+        "leiden_function_per_chr",
+        "leiden_resolution_per_chr",
+        "per_chr_hmm_subclusters",
+        "per_chr_hmm_subclusters_references",
+        "z_score_filter"
+      ]
+    },
+    "denoising": {
+      "title": "Denoising",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "denoise": {
+          "type": "boolean",
+          "description": "If True, turns on denoising according to options below."
+        },
+        "noise_filter": {
+          "type": "number",
+          "description": "Values +/- from the reference cell mean will be set to zero (whitening effect). Default is NA, will use sd_amplifier instead (see sd_amplifier option)."
+        },
+        "sd_amplifier": {
+          "type": "number",
+          "description": "Noise is defined as mean(reference_cells) +/- sdev(reference_cells) * sd_amplifier.",
+          "default": 1
+        },
+        "noise_logistic": {
+          "type": "boolean",
+          "description": "Use the noise_filter or sd_amplifier  based threshold (whichever is invoked) as the midpoint in alogistic model for downscaling values close to the mean.",
+          "default": true
+        }
+      },
+      "required": ["denoise", "sd_amplifier", "noise_logistic"]
+    },
+    "outlier_pruning": {
+      "title": "Outlier pruning",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "outlier_method_bound": {
+          "type": "string",
+          "description": "Method to use for bounding outlier values. Will preferentially use outlier_lower_bound and outlier_upper_bound if set.",
+          "default": "average_bound"
+        },
+        "outlier_lower_bound": {
+          "type": "number",
+          "description": "Outliers below this lower bound  will be set to this value."
+        },
+        "outlier_upper_bound": {
+          "type": "number",
+          "description": "Outliers above this upper bound  will be set to this value."
+        }
+      },
+      "required": ["outlier_method_bound"]
+    },
+    "miscellaneous": {
+      "title": "Miscellaneous",
+      "type": "object",
+      "description": "",
+      "default": "",
+      "properties": {
+        "final_scale_limits": {
+          "type": "string",
+          "description": "The scale limits for the final heatmap  output by the run() method.",
+          "enum": ["low", "high"],
+          "hidden": true
+        },
+        "final_center_val": {
+          "type": "number",
+          "description": "Center value for final heatmap output  by the run() method.",
+          "hidden": true
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "If true, output debug level logging.",
+          "hidden": true
+        },
+        "plot_steps": {
+          "type": "boolean",
+          "description": "If true, saves infercnv objects and plots data at the intermediate steps.",
+          "hidden": true
+        },
+        "inspect_subclusters": {
+          "type": "boolean",
+          "description": "If true, plot subclusters as annotations after the subclustering step to easily see if the subclustering options are good.",
+          "default": true,
+          "hidden": true
+        },
+        "png_res": {
+          "type": "integer",
+          "description": "Resolution for PNG output.",
+          "default": 300,
+          "hidden": true
+        },
+        "no_plot": {
+          "type": "boolean",
+          "description": "Don't make any of the images. Instead, generate all non-image outputs as part of the run.",
+          "hidden": true
+        },
+        "no_prelim_plot": {
+          "type": "boolean",
+          "description": "Don't make the preliminary infercnv image.",
+          "hidden": true
+        },
+        "write_expr_matrix": {
+          "type": "boolean",
+          "description": "Whether to write text files with the content of matrices when generating plots.",
+          "hidden": true
+        },
+        "write_phylo": {
+          "type": "boolean",
+          "description": "Whether to write newick strings of the dendrograms displayed on the left side of the heatmap to file.",
+          "hidden": true
+        },
+        "plot_chr_scale": {
+          "type": "boolean",
+          "description": "Whether to scale the chromosome width on the heatmap based on their actual size rather than just the number of expressed genes.",
+          "hidden": true
+        },
+        "useRaster": {
+          "type": "boolean",
+          "description": "Whether to use rasterization for drawing the heatmap. Only disable if it produces an error, as it is much faster than not using it.",
+          "default": true
+        },
+        "plot_probabilities": {
+          "type": "boolean",
+          "description": "Option to plot posterior probabilities.",
+          "default": true,
+          "hidden": true
+        },
+        "output_format": {
+          "type": "string",
+          "description": "Output format for the figures.",
+          "default": "png",
+          "enum": ["png", "pdf"],
+          "hidden": true
+        },
+        "save_rds": {
+          "type": "boolean",
+          "description": "Whether to save the current step object results as an .rds file.",
+          "default": true,
+          "hidden": true
+        },
+        "save_final_rds": {
+          "type": "boolean",
+          "description": "Whether to save the final object results as an .rds file.",
+          "default": true,
+          "hidden": true
+        }
+      },
+      "required": [
+        "debug",
+        "plot_steps",
+        "inspect_subclusters",
+        "png_res",
+        "no_plot",
+        "no_prelim_plot",
+        "write_expr_matrix",
+        "write_phylo",
+        "plot_chr_scale",
+        "useRaster",
+        "plot_probabilities",
+        "output_format",
+        "save_rds",
+        "save_final_rds"
+      ]
     }
   },
   "allOf": [
     {
       "$ref": "#/definitions/generic_options"
+    },
+    {
+      "$ref": "#/definitions/input_output_options"
+    },
+    {
+      "$ref": "#/definitions/smoothing_options"
+    },
+    {
+      "$ref": "#/definitions/downstream_analyses_hmm_or_non_de_masking_based_on_tumour_subclusters"
+    },
+    {
+      "$ref": "#/definitions/filtering_low_confidence_hmm_predictions_via_bayesnet_p_normal"
+    },
+    {
+      "$ref": "#/definitions/tumour_subclustering"
+    },
+    {
+      "$ref": "#/definitions/denoising"
+    },
+    {
+      "$ref": "#/definitions/outlier_pruning"
+    },
+    {
+      "$ref": "#/definitions/miscellaneous"
     }
-  ],
-  "properties": {
-    "mappings": {
-      "type": "string",
-      "description": "Path to the mappings CSV file, with columns \"id\" and \"raw_counts_matrix\"."
-    },
-    "annotations": {
-      "type": "string",
-      "description": "Path to the annotations TSV file, with columns \"id\", \"cell\", and the annotation column (set by --annotation_col, default: \"celltype\")."
-    },
-    "gene_order_file": {
-      "type": "string",
-      "description": "Path to the headerless gene order TSV file, with columns \"gene\", \"chr\", \"start\", \"stop\". See the inferCNV wiki for details."
-    },
-    "outdir": {
-      "type": "string",
-      "description": "Path to the output directory."
-    },
-    "annotation_col": {
-      "type": "string",
-      "default": "celltype",
-      "description": "Column of the annotations file to use for defining groups of cells."
-    },
-    "analysis_mode": {
-      "type": "string",
-      "default": "subclusters",
-      "description": "Analysis mode used to run inferCNV.",
-      "enum": ["subclusters", "samples", "cells"]
-    },
-    "cluster_by_groups": {
-      "type": "string",
-      "default": "TRUE",
-      "enum": ["TRUE", "T", "FALSE", "F"],
-      "description": "Cluster inferCNV output by groups, according to their annotations?"
-    }
-  },
-  "required": [
-    "out_dir",
-    "gene_order_file",
-    "annotations",
-    "mappings",
-    "annotation_col",
-    "cluster_by_groups",
-    "analysis_mode"
   ]
 }

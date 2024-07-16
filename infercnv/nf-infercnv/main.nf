@@ -63,36 +63,83 @@ process infercnv {
             ref_group_names = NULL)
     
     # run infercnv 
-    # (parameters recommended by mp34@sanger.ac.uk)
-    # (/lustre/scratch126/casm/team268im/mp34/analysis/synovium_scRNA/infercnv_analysis.R)
     options(scipen = 100)
     infercnv_obj <-
         infercnv::run(
             infercnv_obj,
             out_dir = "out/",
-            num_threads = 8, 
-            cluster_by_groups = as.logical("${params.cluster_by_groups}"),
-            analysis_mode = c("${params.analysis_mode}"),
-            denoise = T,
-            noise_logistic = F,
-            resume_mode = T,
-            
-            # window of 51 is too small
-            window_length = 151,              
+            num_threads = ${task.cpus},
+            resume_mode = TRUE,
 
-            # cutoff of 0.1 recommended for 10x-genomics
-            cutoff = 0.1,                     
+            cutoff = "${params.cutoff}",
+            min_cells_per_gene = "${params.min_cells_per_gene}",
+            output_format = "${params.output_format}",
+
+            # Smoothing options = "${params.# Smoothing options}",
+            window_length = "${params.window_length}",
+            smooth_method = "${params.smooth_method}",
+            num_ref_groups = "${params.num_ref_groups}",
+            ref_subtract_use_mean_bounds = as.logical("${params.ref_subtract_use_mean_bounds}"),
+            cluster_by_groups = as.logical("${params.cluster_by_groups}"),
+            cluster_references = as.logical("${params.cluster_references}"),
+            k_obs_groups = "${params.k_obs_groups}",
+            hclust_method = "${params.hclust_method}",
+            max_centered_threshold = "${params.max_centered_threshold}",
+            scale_data = as.logical("${params.scale_data}"),
             
-            # turn on to auto-run the HMM prediction of CNV levels
-            HMM = TRUE,                       
-            HMM_transition_prob = 1e-6,
-            HMM_report_by = c("subcluster"),
+            # Downstream analyses (HMM or non-DE-masking) based on tumour subclusters
+            HMM = as.logical("${params.HMM}"),
+            HMM_transition_prob = "${params.HMM_transition_prob}",
+            HMM_report_by = c("${params.HMM_report_by}"),
+            HMM_type = "${params.HMM_type}",
+            HMM_i3_pval = "${params.HMM_i3_pval}",
+            HMM_i3_use_KS = as.logical("${params.HMM_i3_use_KS}"),
             
-            # # https://github.com/harbourlab/UPhyloplot2
-            # tumor_subcluster_partition_method = "random_trees",
+            # Filtering low confidence HMM predictions via BayesNet P(Normal)
+            BayesMaxPNormal = "${params.BayesMaxPNormal}",
+            reassignCNVs = as.logical("${params.reassignCNVs}"),
             
-            # sets midpoint for logistic
-            sd_amplifier = 0.65
+            # Tumour subclustering
+            analysis_mode = c("${params.analysis_mode}"),
+            tumor_subcluster_partition_method = "${params.tumor_subcluster_partition_method}",
+            tumor_subcluster_pval = "${params.tumor_subcluster_pval}",
+            k_nn = "${params.k_nn}",
+            leiden_method = "${params.leiden_method}",
+            leiden_function = "${params.leiden_function}",
+            leiden_resolution = "${params.leiden_resolution}",
+            leiden_method_per_chr = "${params.leiden_method_per_chr}",
+            leiden_function_per_chr = "${params.leiden_function_per_chr}",
+            leiden_resolution_per_chr = "${params.leiden_resolution_per_chr}",
+            per_chr_hmm_subclusters = as.logical("${params.per_chr_hmm_subclusters}"),
+            per_chr_hmm_subclusters_references = as.logical("${params.per_chr_hmm_subclusters_references}"),
+            z_score_filter = "${params.z_score_filter}",
+            
+            # Denoising
+            denoise = as.logical("${params.denoise}"),
+            noise_filter = "${params.noise_filter}",
+            sd_amplifier = "${params.sd_amplifier}",
+            noise_logistic = as.logical("${params.noise_logistic}"),
+            
+            # Outlier pruning
+            outlier_method_bound = "${params.outlier_method_bound}",
+            outlier_lower_bound = "${params.outlier_lower_bound}",
+            outlier_upper_bound = "${params.outlier_upper_bound}",
+            # Miscellandeous = "${params.# Miscellandeous}",
+            final_scale_limits = "${params.final_scale_limits}",
+            final_center_val = "${params.final_center_val}",
+            debug = as.logical("${params.debug}"),
+            plot_steps = as.logical("${params.plot_steps}"),
+            inspect_subclusters = as.logical("${params.inspect_subclusters}"),
+            png_res = "${params.png_res}",
+            no_plot = as.logical("${params.no_plot}"),
+            no_prelim_plot = as.logical("${params.no_prelim_plot}"),
+            write_expr_matrix = as.logical("${params.write_expr_matrix}"),
+            write_phylo = as.logical("${params.write_phylo}"),
+            plot_chr_scale = as.logical("${params.plot_chr_scale}"),
+            useRaster = as.logical("${params.useRaster}"),
+            plot_probabilities = as.logical("${params.plot_probabilities}"),
+            save_rds = as.logical("${params.save_rds}"),
+            save_final_rds = as.logical("${params.save_final_rds}")
             )
             
     # apply median filtering

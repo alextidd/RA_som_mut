@@ -24,6 +24,9 @@ awk -F'\t' -v OFS="\t" \
 echo -e "id,raw_counts_matrix\nall,out/Zhang2023/sce/counts.rds" \
 > out/Zhang2023/all_fibroblasts/mappings.csv
 
+# run infercnv 
+# (parameters recommended by mp34@sanger.ac.uk)
+# (/lustre/scratch126/casm/team268im/mp34/analysis/synovium_scRNA/infercnv_analysis.R)
 nextflow run nf-infercnv \
   --out_dir out/Zhang2023/all_fibroblasts/ \
   --mappings out/Zhang2023/all_fibroblasts/mappings.csv \
@@ -31,8 +34,18 @@ nextflow run nf-infercnv \
   --annotation_col id \
   --analysis_mode subclusters \
   --cluster_by_groups FALSE \
+  --cutoff 0.1 \
+  --window_length 151 \
+  --noise_logistic FALSE \
+  --denoise TRUE \
+  --HMM TRUE \
+  --HMM_transition_prob 0.000001 \
+  --HMM_report_by subcluster \
+  --sd_amplifier 0.65 \
+  --useRaster FALSE \
   -c config/infercnv.config \
-  -resume
+  -resume \
+  -N at31@sanger.ac.uk
 
 # # run infercnv on celltypes
 # /software/team205//nextflow-23.04.1-all run nextflow/infercnv.nf \
