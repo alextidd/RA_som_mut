@@ -168,7 +168,8 @@
         "HMM_type": {
           "type": "string",
           "description": "HMM model type. Options: (i6 or i3): i6: infercnv 6-state model (0, 0.5, 1,  1.5, 2, >2) where state emissions are  calibrated based on simulated CNV levels.  i3: infercnv 3-state model (del, neutral, amp)  configured based on normal cells and HMM_i3_z_pval.",
-          "enum": ["i6", "i3"]
+          "enum": ["i6", "i3"],
+          "default": "i6"
         },
         "HMM_i3_pval": {
           "type": "number",

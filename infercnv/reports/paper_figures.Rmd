@@ -215,7 +215,7 @@ p <-
                 (value < 0.5 | value > 0.8),
                 chr %in% c("chr7", "chr5", "chr3")) %>%
   dplyr::mutate(
-    value = dplyr::case_when(value <= 0.5 ~ 0, value >= 0.8 ~ 1) %>% 
+    value = dplyr::case_when(value <= 0.5 ~ 0, value >= 0.8 ~ 1) %>%
       as.character()) %>%
   ggplot(aes(x = cell_type, fill = value)) +
   theme_classic() +
@@ -246,6 +246,6 @@ colSums(sce@assays@data$counts) %>%
 
 The distributions appear to be sensible. 
 
-# Plot 3 - inferCNV plot with all individuals together
+# Plot 4 - inferCNV plot with all individuals together
 
 
