@@ -5,6 +5,8 @@ nextflow.enable.dsl=2
 
 // all of the default parameters are being set in `nextflow.config`
 
+// TODO: split the infercnv step up into each constituent step to allow cacheing
+
 // import functions / modules / subworkflows / workflows
 include { validateParameters; paramsHelp; paramsSummaryLog; samplesheetToList } from 'plugin/nf-schema'
 import groovy.json.JsonOutput
@@ -17,6 +19,7 @@ if (params.help) {
 
 // save params
 process save_params {
+  label "normal"
   publishDir path: "${params.out_dir}/", mode: "copy"
 
   output:
@@ -30,7 +33,7 @@ process save_params {
 process infercnv {
   container "trinityctat/infercnv"
   tag "${meta.id}"
-  label "yday16core60gb"
+  label "week16core20gb"
   errorStrategy = "retry"
   publishDir(
     path: "${params.out_dir}/${meta.id}", 
@@ -41,8 +44,6 @@ process infercnv {
   
   input:
     tuple val(meta), path(raw_counts_matrix)
-    path(annotations)
-    path(gene_order_file)
     
   output:
     tuple val(meta), path("out/*")
@@ -56,7 +57,7 @@ process infercnv {
     library(Matrix)
     
     # generate annotations file
-    annotations <- read.delim("${annotations}")
+    annotations <- read.delim("${params.annotations}")
     annotations <- annotations[annotations\$id == "${meta.id}",
                                c("cell", "${params.annotation_col}")]
     write.table(annotations, "formatted_annotations.tsv", col.names = F, 
@@ -72,7 +73,7 @@ process infercnv {
         infercnv::CreateInfercnvObject(
             raw_counts_matrix = raw_counts_matrix,
             annotations_file = "formatted_annotations.tsv",
-            gene_order_file = "${gene_order_file}",
+            gene_order_file = "${params.gene_order_file}",
             ref_group_names = NULL)
     
     # run infercnv 
@@ -138,12 +139,12 @@ process infercnv {
             outlier_upper_bound = ${params.outlier_upper_bound ?: 'NA'},
 
             # Miscellandeous
-            final_scale_limits = "${params.final_scale_limits ?: 'NULL'}",
-            final_center_val = "${params.final_center_val ?: 'NULL'}",
+            final_scale_limits = "${params.final_scale_limits}",
+            final_center_val = ${params.final_center_val ?: 'NULL'},
             debug = as.logical("${params.debug}"),
             plot_steps = as.logical("${params.plot_steps}"),
             inspect_subclusters = as.logical("${params.inspect_subclusters}"),
-            png_res = "${params.png_res}",
+            png_res = ${params.png_res},
             no_plot = as.logical("${params.no_plot}"),
             no_prelim_plot = as.logical("${params.no_prelim_plot}"),
             write_expr_matrix = as.logical("${params.write_expr_matrix}"),
@@ -186,14 +187,6 @@ workflow {
   if (params.annotations == null) {
     error "Please provide annotations TSV file via --annotations"
   }
-
-  // get annotations file
-  Channel.fromPath(params.annotations, checkIfExists: true) 
-  | set { ch_annotations }
-
-  // get gene order file
-  Channel.fromPath(params.gene_order_file, checkIfExists: true)
-  | set { ch_gene_order_file }
   
   // get metadata + bam paths
   Channel.fromPath(params.mappings, checkIfExists: true) 
@@ -208,6 +201,6 @@ workflow {
   save_params()
 
   // run infercnv
-  infercnv(ch_mappings, ch_annotations, ch_gene_order_file)
+  infercnv(ch_mappings)
   
 }

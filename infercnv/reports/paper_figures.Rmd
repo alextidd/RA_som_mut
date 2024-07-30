@@ -248,4 +248,36 @@ The distributions appear to be sensible.
 
 # Plot 4 - inferCNV plot with all individuals together
 
+I am currently trying to run this. I have run into some issues with `inferCNV`
+dependencies breaking on farm22, so this has been on hold for the last 2 weeks.
 
+# Plot 5 - Mutation hotspots
+
+We load Luke's object. The `nano_muts` are the targeted mutations. The 
+`exome_muts` is a list of significant drivers in each cell type (dNdScv output).
+
+
+```{r}
+# load the metadata
+sm <- readr::read_tsv("/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/Data/MetaData/sample_meta.tsv")
+
+# load the muts and convert to list
+load("/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/Figures/Figure_2/LCM_NanoSeq_Overlap/GOI/pileup_muts.rda")
+muts <- list(exome = exome_muts,
+             LCM = LCM_muts,
+             targeted = nano_muts,
+             pileup = pileup_muts)
+
+# genes of interest
+goi <- "NF1"
+
+# get annotations from dndscv output
+mut_annots <-
+  muts$exome %>%
+  tibble::as_tibble() %>%
+  dplyr::select(chr, pos, gene, ref, mut, type, tri, impact, aachange)
+
+muts$targeted %>%
+  tibble::as_tibble() %>%
+  dplyr::select()
+```

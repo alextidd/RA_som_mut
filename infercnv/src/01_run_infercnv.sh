@@ -11,8 +11,54 @@ module load singularity
 # (default = FALSE, instead will use k_obs_groups setting)
 # run infercnv on fibroblast clusters, running all individuals together
 
+# run infercnv by celltype
+mkdir -p out/Zhang2023/by_celltype_test/
+
+# generate annotations, differentiate mural cells and fibroblasts within stromal compartment
+cat data/Zhang2023/annotations.tsv |
+awk -F'\t' '{
+    if (NR == 1) {
+      print $1, $2, "id"
+    } else if ($2 == "Stromal cell") {
+        if ($3 ~ /^F-/) {
+            print $1, "Fibroblast", $4
+        } else if ($3 ~ /^M-/) {
+            print $1, "Mural cell", $4
+        } 
+    } else {
+        print $1, $2, $4
+    }
+}' OFS='\t' \
+> out/Zhang2023/by_celltype_test/annotations.tsv
+
+# generate mappings for all
+cat data/Zhang2023/mappings.csv |
+awk -F, '{ if (NR==1) { print } ; if (NR>1) {print $1",out/Zhang2023/sce/counts.rds"}}' \
+> out/Zhang2023/by_celltype_test/mappings.csv
+
+# run infercnv
+nextflow run nf-infercnv \
+  --out_dir out/Zhang2023/by_celltype_test/ \
+  --mappings out/Zhang2023/by_celltype_test/mappings.csv \
+  --annotations out/Zhang2023/by_celltype_test/annotations.tsv \
+  --annotation_col celltype \
+  --analysis_mode subclusters \
+  --cluster_by_groups FALSE \
+  --cutoff 0.1 \
+  --window_length 151 \
+  --noise_logistic FALSE \
+  --denoise TRUE \
+  --HMM TRUE \
+  --HMM_transition_prob 0.000001 \
+  --HMM_report_by subcluster \
+  --sd_amplifier 0.65 \
+  --useRaster FALSE \
+  -c config/infercnv.config \
+  -resume \
+  -N at31@sanger.ac.uk
+
 # run infercnv on all fibroblasts, running all individuals together
-mkdir out/Zhang2023/all_fibroblasts/
+mkdir -p out/Zhang2023/all_fibroblasts/
 
 # generate annotations, filter to only fibroblasts
 cat data/Zhang2023/annotations.tsv |
@@ -31,7 +77,7 @@ nextflow run nf-infercnv \
   --out_dir out/Zhang2023/all_fibroblasts/ \
   --mappings out/Zhang2023/all_fibroblasts/mappings.csv \
   --annotations out/Zhang2023/all_fibroblasts/annotations.tsv \
-  --annotation_col id \
+  --annotation_col cluster \
   --analysis_mode subclusters \
   --cluster_by_groups FALSE \
   --cutoff 0.1 \
@@ -46,6 +92,29 @@ nextflow run nf-infercnv \
   -c config/infercnv.config \
   -resume \
   -N at31@sanger.ac.uk
+
+# # run infercnv on fibroblast clusters, running all individuals together, 
+# # clustered by fibroblast subtype
+# cat data/Zhang2023/annotations.tsv |
+# awk -F'\t' -v OFS="\t" \
+#   '{if (NR == 1) {print $1,$2,$3,"id"} ; if(($2 == "Stromal cell") && $3 ~ /^F-/) {print $1,$2,$3,$3} }' \
+# > out/Zhang2023/all_fibroblasts/annotations.tsv
+
+# cat data/Zhang2023/mappings.csv |
+# awk -F',' 'BEGIN{OFS=",";} NR == 1 {print} ; NR == 2 {print "all",$2}' \
+# > data/Zhang2023/stromal_mappings_run_all.csv
+
+# nextflow run nextflow/infercnv.nf \
+#   --out_dir out/Zhang2023/by_stromal_cluster_run_all/ \
+#   --mappings data/Zhang2023/stromal_mappings_run_all.csv \
+#   --annotations data/Zhang2023/stromal_annotations_run_all.tsv \
+#   --annotation_col 'cluster' \
+#   --analysis_mode 'samples' \
+#   --cluster_by_groups 'FALSE' \
+#   -c config/infercnv.config \
+#   -c /nfs/team205/kp9/nextflow/scomatic/LSF.config  \
+#   -w work/ \
+#   -resume
 
 # # run infercnv on celltypes
 # /software/team205//nextflow-23.04.1-all run nextflow/infercnv.nf \
