@@ -22,11 +22,11 @@ params:
 # rmarkdown::render('reports/infercnv.Rmd', output_file = 'driver_coverage.html', output_dir = 'reports/', params = list(rerun = T))
 
 # chunk options
-knitr::opts_knit$set(root.dir = '../')
+knitr::opts_knit$set(root.dir = "../")
 knitr::opts_chunk$set(
-  warning = FALSE, 
-  dpi = 300, 
-  message = FALSE) 
+  warning = FALSE,
+  dpi = 300,
+  message = FALSE)
 
 # libraries
 library(magrittr)

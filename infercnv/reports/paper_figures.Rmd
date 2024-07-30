@@ -258,11 +258,14 @@ We load Luke's object. The `nano_muts` are the targeted mutations. The
 
 
 ```{r}
+lh22_dir <- "/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/"
+
 # load the metadata
-sm <- readr::read_tsv("/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/Data/MetaData/sample_meta.tsv")
+sm <- readr::read_tsv(file.path(lh22_dir, "Data/MetaData/sample_meta.tsv"))
 
 # load the muts and convert to list
-load("/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/Figures/Figure_2/LCM_NanoSeq_Overlap/GOI/pileup_muts.rda")
+load(file.path(lh22_dir, "Figures/Figure_2/LCM_NanoSeq_Overlap/GOI",
+               "pileup_muts.rda"))
 muts <- list(exome = exome_muts,
              LCM = LCM_muts,
              targeted = nano_muts,

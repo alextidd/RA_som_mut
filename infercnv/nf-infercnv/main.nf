@@ -44,6 +44,8 @@ process infercnv {
   
   input:
     tuple val(meta), path(raw_counts_matrix)
+    path annotations
+    path gene_order_file
     
   output:
     tuple val(meta), path("out/*")
@@ -57,7 +59,7 @@ process infercnv {
     library(Matrix)
     
     # generate annotations file
-    annotations <- read.delim("${params.annotations}")
+    annotations <- read.delim("${annotations}")
     annotations <- annotations[annotations\$id == "${meta.id}",
                                c("cell", "${params.annotation_col}")]
     write.table(annotations, "formatted_annotations.tsv", col.names = F, 
@@ -73,7 +75,7 @@ process infercnv {
         infercnv::CreateInfercnvObject(
             raw_counts_matrix = raw_counts_matrix,
             annotations_file = "formatted_annotations.tsv",
-            gene_order_file = "${params.gene_order_file}",
+            gene_order_file = "${gene_order_file}",
             ref_group_names = NULL)
     
     # run infercnv 
@@ -197,10 +199,16 @@ workflow {
   }
   | set { ch_mappings }
   
+  // get gene order file
+  gene_order_file = file(params.gene_order_file, checkIfExists: true)
+
+  // get annotations
+  annotations = file(params.annotations, checkIfExists: true)
+
   // save params
   save_params()
 
   // run infercnv
-  infercnv(ch_mappings)
+  infercnv(ch_mappings, annotations, gene_order_file)
   
 }
