@@ -258,32 +258,93 @@ We load Luke's object. The `nano_muts` are the targeted mutations. The
 
 
 ```{r}
+# add library path
+.libPaths(c("/lustre/scratch125/casm/team268im/at31/.R/lib/4.2.2/", .libPaths()))
+
+# libraries
+library(GenomicRanges)
+library(trackViewer)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)  # package for gene model
+library(org.Hs.eg.db)                       # package for gene name
+
+# dirs
 lh22_dir <- "/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/"
 
 # load the metadata
 sm <- readr::read_tsv(file.path(lh22_dir, "Data/MetaData/sample_meta.tsv"))
 
-# load the muts and convert to list
+# load the muts
 load(file.path(lh22_dir, "Figures/Figure_2/LCM_NanoSeq_Overlap/GOI",
                "pileup_muts.rda"))
-muts <- list(exome = exome_muts,
-             LCM = LCM_muts,
-             targeted = nano_muts,
-             pileup = pileup_muts)
+# muts <- list(exome = exome_muts,
+#              LCM = LCM_muts,
+#              targeted = nano_muts,
+#              pileup = pileup_muts)
 
-# lollipopPlot
+# get NF1 mutations, convert to granges
 
 
-# genes of interest
-goi <- "NF1"
 
-# get annotations from dndscv output
-mut_annots <-
-  muts$exome %>%
+# get mutations, convert to granges
+gr_ls <-
+  nano_muts %>%
   tibble::as_tibble() %>%
-  dplyr::select(chr, pos, gene, ref, mut, type, tri, impact, aachange)
+  dplyr::add_count(mut_site) %>%
+  {
+    GenomicRanges::GRanges(
+      seqnames = paste0("chr", .$chr),
+      ranges = IRanges::IRanges(start = .$pos,
+                                width = 1,
+                                names = .$mut_site),
+      strand = ifelse(.$strand == 1, "+", "-"),
+      gene = .$gene, score = .$n)
+  } %>%
+  {split(., .$gene)}
 
-muts$targeted %>%
-  tibble::as_tibble() %>%
-  dplyr::select()
+# get transcripts in the range
+trs <-
+  geneModelFromTxdb(TxDb.Hsapiens.UCSC.hg19.knownGene,
+                    org.Hs.eg.db, gr = gr_ls$NF1)
+
+entrezID <- get("NF1", org.Hs.egSYMBOL2EG)
+theTrack <- geneTrack(entrezID, TxDb.Hsapiens.UCSC.hg19.knownGene)[[1]]
+viewerStyle <- trackViewerStyle()
+setTrackViewerStyleParam(viewerStyle, "margin", c(.1, .05, .02, .02))
+trackList <- trackList(trs)
+vp <- viewTracks(trackList,
+                 gr = gr, viewerStyle = viewerStyle,
+                 autoOptimizeStyle = TRUE)
+
+pdf("test.pdf")
+vp
+dev.off()
+
+# select transcripts of interest
+features <- c(range(trs[[1]]$dat), range(trs[[2]]$dat))
+names(features) <- c(trs[[1]]$name, trs[[2]]$name)
+features$fill <- c("lightblue", "mistyrose")
+
+
+
+# lollipop
+pdf("test.pdf", width = 30)
+lolliplot(gr_ls$NF1, features,
+          ranges = GRanges("chr17", IRanges(29421945, 29704695, names = "NF1")), 
+          type = "circle")
+dev.off()
+
+# get genes from biomart
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+broads <- GenomicFeatures::genes(txdb)
+seqlevels(broads) <- gsub("chr", "", seqlevels(broads))
+
+# get gene annotations from broads
+feats <- broads[seqnames(broads) %in% seqlevels(gr)]
+findOverlaps(gr, broads)
+
+feats <-
+  GenomicRanges::GRanges("12", IRanges::IRanges(start = 6702320, end = 6702330),
+                         strand = "+", gene = "NF1")
+
+trackViewer::lolliplot(SNP.gr = head(gr, 1), features = feats)
 ```
