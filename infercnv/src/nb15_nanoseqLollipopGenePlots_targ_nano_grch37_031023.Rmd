@@ -1,0 +1,474 @@
+---
+title: "nanoseqLollipopGenePlots"
+author: "Matt Neville"
+date: '2022-07-12'
+output: html_document
+---
+
+# 1. Prep
+## Paths/Libraries
+```{r setup}
+#Input files on the farm
+dndsPath <- "~/Mounts/peter/liver/analysis/targeted_liver_panel/"
+refCDSpath <- "~/Mounts/peter/liver/code/dNdScv/RefCDS_GRCh37_vF.Rdat"
+lof_gof_path <- "~/Mounts/peter/liver/data/NanoSeq/lof_gof38.tsv"
+nanoseqVarsPath <- "~/Mounts/peter/liver//analysis/targeted_liver_panel/combined_muts_annot.tsv"
+
+#Local output
+# outputPath <- "/Volumes/GoogleDrive/My Drive/Sperm/lolliplot/"
+outputPath <- "/Users/nb15/Mounts/peter/liver/analysis/targeted_liver_panel/lolliplots/coverage/"
+
+
+library(Biostrings)
+library(GenomicRanges)
+library(MetBrewer)
+library(egg)
+library(plyr)
+library(tidyverse)
+```
+
+## Load Datasets
+```{r loadDatasets}
+
+## load dnds hg37 refCDS object from dNdS -> to get coding sequence intervals
+load(refCDSpath)
+
+# Katrina's clinvar annotated LOF/GOF list
+lof_gof <- read_tsv(lof_gof_path, col_types = cols()) %>%
+  dplyr::rename(mut = alt)
+
+
+## dataframe that holds list number in RefCDS object for each gene; so you can easily extract your gene of interest cds intervals
+genes <- as.data.frame(matrix(nrow=length(RefCDS), ncol=2))
+colnames(genes) <- c("gene_name","row_in_refcds")
+for( i in 1:length(RefCDS)){
+  genes$gene_name[i] <- RefCDS[[i]]$gene_name
+  genes$row_in_refcds[i] <- i
+}
+
+## load dnds object to annotate muts and colour by impact
+annotmuts <- readRDS(paste0(dndsPath, "dnds_all_dc.rds"))$annotmuts 
+
+## merge nanoseq_data with dnds annotations and clinvar annotations
+nanoseq_data <- read_tsv(nanoseqVarsPath, col_types = cols()) %>% 
+  dplyr::select(sampleID, chr, pos, ref, mut, duplex_cov) %>% 
+  mutate(sampleID = as.character(sampleID)) %>%
+  mutate(chr = gsub("chr","",chr)) %>%
+  left_join(annotmuts,by=c("sampleID","chr","pos","ref","mut")) %>%  
+  left_join(lof_gof,by=c("chr","pos","ref","mut")) %>%  
+  mutate(label = if_else(fxn == "altered_function", "G", "")) %>%
+  mutate(label = if_else(fxn == "LOF", paste0(label,"L"), label)) %>%
+  # rename cols to match nanoseq_data colnames
+  dplyr::rename(CHROM = chr,
+         POS = pos,
+         REF = ref,
+         ALT = mut) %>% 
+  #Change label based on clinvar Katrina annotation
+  # mutate(label = if_else(fxn == "altered_function", "G", "")) %>% 
+  # mutate(label = if_else(fxn == "LOF", paste0(label,"L"), label)) %>% 
+  mutate(impact = replace_na(impact, "Non-coding")) %>% 
+  mutate(impact = str_replace(impact, "no-SNV", "Indel"))  %>% 
+  mutate(name = if_else(impact == "Indel", 
+                        #Formating for indels
+                        replace_na(str_remove(ntchange, ".*-"), ".") %>% 
+                          str_replace("frshift", "FS") %>% 
+                          str_replace("inframe", "IF"), 
+                        #Name for SNVs
+                        replace_na(aachange, "."))) 
+
+
+## define genes of interest by dNdS sig genes or by custom list or put in gene names (example below)
+#goi <- readRDS(paste0(dndsPath, "spermTargdNdS.RDS"))$sel_cv %>% 
+  # dplyr::filter(qglobal_cv < 0.05 | qallsubs_cv < 0.05) %>% 
+#  pull(gene_name)
+
+#goi <- c("FOXO1","KLF15","CYP2E1","ACVR2A")
+goi <- c("A1CF","TNRC6B","FOXO1","GPAM","ACVR2A","TF","CHD4")
+
+```
+
+
+# 2. Coverage
+## Calculate cov
+Bash code on farm to generate the total coverage across all samples in cohort
+```{bash burdens, eval = F}
+
+#Go to targeted directory, create folders
+cd /lustre/scratch126/casm/team154pc/nb15/liver/data/NanoSeq/plate_9_DN942040D_exome_1/Analysis
+mkdir -p cov cov/cut cov/source cov/jobLogs
+
+#Unzip  and rename all nanoseq coverage files to single folder then
+#Format files to remove trinuc context
+for sample in `ls variants_subs`;
+  do echo $sample
+  cp variants_subs/$sample/results.cov.bed cov/source/$sample.bed
+  sed 's/;/\t/g' cov/source/$sample.bed | cut -f 1-3,6 > cov/cut/$sample.bed
+done
+
+#Make summary files with coverage for all indivs at all positions
+cd /lustre/scratch126/casm/team154pc/nb15/liver/data/NanoSeq/plate_9_DN942040D_exome_1/Analysis/cov/cut
+bsub -G team154-grp -o ../jobLogs/sumCov.%J.out -e ../jobLogs/sumCov.%J.err -q normal -R 'select[mem>=1000] rusage[mem=1000] span[hosts=1]' -M 1000 'module load bedtools; bedtools unionbedg -i $(ls *.bed) -header -names $(ls *.bed) > ../summaryCov.bed'
+
+#Get sum of coverage at each site
+cd /lustre/scratch126/casm/team154pc/nb15/liver/data/NanoSeq/plate_9_DN942040D_exome_1/Analysis/cov
+
+#These 2 lines need to be in a bash script so could for instance type 'nano getTotalCov.sh', paste these 2 lines in and then make it executable with 'chmod +x getTotalCov.sh'
+
+#!/bin/bash
+awk 'OFS="\t" {sum=0; for (col=4; col<=NF; col++) sum += $col; print $1, $2, $3, sum;}' summaryCov.bed | tail -n +2 > totalCov.bed
+
+bsub -G team154-grp -q normal -o jobLogs/sumCov.%J.out -e jobLogs/sumCov.%J.err -R 'select[mem>=1000] rusage[mem=1000] span[hosts=1]' -M 1000 ./getTotalCov.sh
+
+```
+
+
+## Read into R
+```{r cov}
+#Coverage summaries
+totTargCov <- read_tsv("~/Mounts/peter/liver/data/NanoSeq/plate_9_DN942040D_exome_1/Analysis/cov/totalCov.bed", col_types = "c-dd", col_names = c("chr", "pos", "cov"))
+
+```
+
+# 3. Plot
+## Plotting functions
+```{r cov}
+# jitterLables and reAdjustLabels adapted from lolliplots package
+jitterLables <- function(coor, xscale, lineW, weight=1.2){
+    if(weight==1.2) {
+      stopifnot("Please sort your inputs by start position"= 
+                  order(coor)==1:length(coor))
+    }
+    if(weight<0.5) return(coor)
+    stopifnot(length(xscale)==2)
+    pos <- (coor-1)/(xscale[2]-1)
+    # pos <- convertX(unit(coor01, "native"), "npc", valueOnly=TRUE)
+    pos.diff <- diff(c(0, pos, 1))
+    idx <- which(pos.diff < weight*lineW)
+    if(length(idx)<1){
+        return(coor)
+    }
+    if(all(idx %in% c(1, length(pos)+1))){
+        return(coor)
+    }
+    idx.diff <- diff(c(-1, idx))
+    idx.grp <- rle(idx.diff)
+    idx.grp$values[idx.grp$values==1] <- length(pos) + 1:sum(idx.grp$values==1)
+    idx.grp <- inverse.rle(idx.grp)
+    idx.grp.w <- which(idx.grp>length(pos))-1
+    idx.grp.w <- idx.grp.w[idx.grp.w>0]
+    idx.grp[idx.grp.w] <- idx.grp[idx.grp.w+1]
+    idx.grp <- split(idx, idx.grp)
+    flag <- as.numeric(names(idx.grp))>length(pos)
+    idx.grp.mul <- lapply(idx.grp[flag], function(.ele){
+        c(.ele[1]-1, .ele)
+    })
+    idx.grp.sin <- lapply(idx.grp[!flag], function(.ele){
+        lapply(as.list(.ele), function(.ele){c(.ele-1, .ele)})
+    })
+    idx.grp.sin <- unlist(idx.grp.sin, recursive = FALSE)
+    idx.grp <- c(idx.grp.mul, idx.grp.sin)
+    
+    adj.pos <- lapply(idx.grp, function(.ele){
+        .ele <- .ele[.ele>0 & .ele<=length(pos)]
+        this.pos <- pos[.ele]
+        names(this.pos) <- .ele
+        if(length(this.pos)%%2==1){
+            center <- ceiling(length(this.pos)/2)
+        }else{
+            center <- length(this.pos)/2 + .5
+        }
+        if(length(this.pos)>5){ ## too much, how to jitter?
+            this.pos <- this.pos + 
+                ((1:length(this.pos))-center) * (weight-.1) * 
+                lineW/ceiling(log(length(this.pos), 5))
+        }else{
+            this.pos <- this.pos + 
+                ((1:length(this.pos))-center) * (weight-.1) * lineW
+        }
+        this.pos
+    })
+    names(adj.pos) <- NULL
+    adj.pos <- unlist(adj.pos)
+    coor[as.numeric(names(adj.pos))] <- adj.pos*diff(xscale)+xscale[1]
+    
+    Recall(coor, xscale=xscale, lineW=lineW, weight=weight-0.2)
+}
+
+reAdjustLabels <- function(coor, lineW, xmax){
+  # resort
+  coor <- sort(coor)
+  bins <- ceiling(1/lineW)
+  pos <- (coor-1)/(xmax-1)
+  # pos <- convertX(unit(coor, "native"), "npc", valueOnly=TRUE)
+  pos.bin <- cut(pos, c(-Inf, (0:bins)*lineW, Inf), labels=0:(bins+1), right=FALSE)
+  
+  ## split the coors by into clusters
+  ## give the clusters with more idx more spaces if there are spaces between clusters
+  tbl <- table(pos.bin)
+  if(all(tbl<2)) return(coor)
+  tbl.len <- length(tbl)
+  if(tbl.len<3) return(coor)
+  loops <- 1000
+  loop <- 1
+  while(any(tbl==0) && any(tbl>1) && loop < loops){
+    tbl.bk <- tbl
+    for(i in order(tbl.bk, decreasing=TRUE)){
+      if(tbl[i]>1 && tbl.bk[i]==tbl[i]){
+        if(i==1){
+          if(tbl[2]<tbl[1]){
+            half <- sum(tbl[1:2])/2
+            tbl[2] <- ceiling(half)
+            tbl[1] <- floor(half)
+          }
+        }else{
+          if(i==tbl.len){
+            if(tbl[tbl.len]>tbl[tbl.len-1]){
+              half <- sum(tbl[(tbl.len-1):tbl.len])/2
+              tbl[tbl.len-1] <- ceiling(half)
+              tbl[tbl.len] <- floor(half)
+            }
+          }else{
+            if(tbl[i-1]<tbl[i+1]){
+              ## i-1 and i should be balanced
+              half <- sum(tbl[(i-1):i])/2
+              tbl[i-1] <- floor(half)
+              tbl[i] <- ceiling(half)
+            }else{
+              half <- sum(tbl[i:(i+1)])/2
+              tbl[i] <- floor(half)
+              tbl[i+1] <- ceiling(half)
+            }
+          }
+        }
+      }
+    }
+    loop <- loop + 1
+  }
+  coef <- unlist(lapply(tbl, function(.ele){
+    if(.ele==0) return(0)
+    .ele <- seq(from=0, to=1, length.out=.ele+1)
+    (.ele[-length(.ele)] + .ele[-1])/2
+  }))
+  coef <- coef[coef!=0]
+  coor <- (rep(as.numeric(names(tbl)), tbl) - 1 + coef) * lineW
+  # coor <- convertX(unit(coor, "npc"), "native", valueOnly=TRUE)
+  coor = ((xmax-1) * coor) + 1
+  coor
+}
+
+# Covert genomic bp to coding sequence coordinate
+getCDSindex <- function(intervals) {
+  strand <- intervals$strand[1]
+  allBP <- tibble()
+  for(exon in 1:length(intervals$length)) {
+    exonBP <- tibble(pos = seq(intervals$start[exon], intervals$end[exon]))
+    allBP <- bind_rows(allBP, exonBP) 
+  }
+  # Forward strand standard
+  if(strand == 1) {
+  allBP <- allBP %>% 
+      mutate(cdsPos = seq(1:sum(intervals$length)))    
+  } else {
+    #Reverse strand flip cds coords so all genes show left to right
+    allBP <- allBP %>% 
+      mutate(cdsPos = seq(from = sum(intervals$length), to = 1))  
+  }
+  return(allBP)
+}
+
+#For a mutation outside the CDS (splice or non-coding) set its CDS position as .5 off the nearest exon border
+getCDSindexNonCDS <- function(cdsCoordsIndex, vars, strand) {
+  nonCDSvars <- vars %>% filter(impact %in% c("Essential_Splice", "Non-coding") | (impact == "Indel" & is.na(ntchange)))
+  closestCDS <- cdsCoordsIndex %>% dplyr::slice(rep(1:n(), each = dim(nonCDSvars)[1])) %>% 
+    mutate(nonCDSpos = rep(nonCDSvars$POS, times = dim(cdsCoordsIndex)[1])) %>% 
+    mutate(gap = nonCDSpos - pos) %>% 
+    mutate(absGap = abs(gap)) %>% 
+    group_by(nonCDSpos) %>% filter(absGap == min(absGap)) %>% 
+    ungroup() %>% 
+    #flip direction if reverse strand
+    mutate(gap = gap * strand) %>% 
+    #Set offset based on strand direction
+    mutate(cdsPos = if_else(gap < 0, cdsPos - 0.5, cdsPos + 0.5)) %>% 
+    select(POS = nonCDSpos, cdsPos)
+  return(closestCDS)
+}
+```
+
+## Lolliplot
+Loops through selected genes, outputs file
+```{r lolliplot}
+
+#Plot Settings
+#Set height of coverage y-axis
+yMax = max(totTargCov$cov)+500
+
+#True means drop non-coding (intronic) mutations, False means keep (will show at exon borders)
+filterNonCoding = T
+#Controls how spaced variant points will be. If you change pdf output size, you may need to adjust this
+pointWidth = 0.017
+
+## loop over genes
+for(g in 1:length(goi)){
+g_CDS <- RefCDS[[which(genes$gene_name==goi[g])]]
+
+intervals_cds0 <- tibble(chr = g_CDS$chr,
+                        strand = g_CDS$strand,
+                        start = g_CDS$intervals_cds[,1],
+                        end = g_CDS$intervals_cds[,2]) %>% 
+  arrange(start) %>% 
+  mutate(length = (end + 1) - start) 
+
+cdsCoordsIndex <- getCDSindex(intervals_cds0)
+
+intervals_cds <- intervals_cds0 %>% 
+  left_join(cdsCoordsIndex %>% select(start = pos, cdsStart = cdsPos), by = "start") %>% 
+  left_join(cdsCoordsIndex %>% select(end = pos, cdsEnd = cdsPos), by = "end")
+
+# Coverage
+geneCov <- cdsCoordsIndex %>% 
+  left_join(totTargCov %>% select(-chr), by = "pos") %>% 
+  mutate(cov = replace_na(cov, 0))
+
+
+# subset nanoseq_data to variants in the gene
+# Can choose to filter non-coding variants or not
+gene0 <- nanoseq_data %>% filter(CHROM == intervals_cds$chr[1] & POS >= min(intervals_cds %>% pull(start)) & POS <= max(intervals_cds %>% pull(end))) 
+
+gene <- gene0 %>% 
+  left_join((cdsCoordsIndex %>% dplyr::rename(POS = pos) %>% bind_rows(getCDSindexNonCDS(cdsCoordsIndex, gene0, strand = intervals_cds$strand[1]))), by = "POS") %>% 
+  arrange(cdsPos) %>% 
+  drop_na(cdsPos)
+
+  if(dim(gene)[1] == 0) {
+    xMax <- max(c(intervals_cds$cdsEnd,intervals_cds$cdsStart)) + max(c(intervals_cds$cdsEnd,intervals_cds$cdsStart))*0.05
+    xMin <- 1 - xMax*0.01
+    pCov <- ggplot(geneCov, aes(x = cdsPos, y = cov)) + 
+      #Coverage area
+      geom_area(fill = '#ccece6') + ylab('Duplex_Cov') + 
+      scale_x_continuous(expand = c(0, 0), limits = c(xMin, xMax)) +
+      coord_cartesian(clip = "off") +
+      scale_y_continuous(limits = c(0, yMax), expand = c(0, 0)) +
+      ggtitle(goi[g]) +
+      theme(
+        panel.background = element_rect(fill = "transparent", colour = NA),
+        plot.background = element_rect(fill = "transparent", colour = NA),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = unit(c(0.5, 0.5, 0, 0.5), "cm"),
+        panel.spacing = unit(c(0, 0, 0, 0), "cm"),
+        axis.text.y = element_text(margin = margin(0,0.3,0,0.2, "cm")),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        axis.ticks.length.x = unit(0, "null"),
+        legend.position = c(0.5, 0.85),
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA)
+      ) 
+    
+    pCDS <- ggplot(intervals_cds, aes(xmin = cdsStart, xmax = cdsEnd, ymin = 0, ymax = 1)) +
+      geom_rect(fill = "#d0d1e6", colour = "black") +
+      theme_void() + 
+      xlab("CDS") +
+      scale_x_continuous(expand = c(0, 0), limits = c(xMin,xMax)) +
+      scale_y_continuous(expand = c(0, 0)) +
+      theme(plot.margin = unit(c(0, 0.5, 0.5, 0.5), "cm"))
+    
+    ggarrange(pCov, pCDS, heights = c(15,1), nrow = 2, ncol = 1)
+    
+    filename <- paste0(outputPath, goi[g],"_lollipop.pdf")
+    pdf(file = filename, height = 3, width = 11, onefile=FALSE)
+    ggarrange(pCov, pCDS, heights = c(15,1), nrow = 2, ncol = 1)
+    dev.off()
+  }else {
+  #Set colours for variant csq
+  cols <- met.brewer("Archambault",5)
+  gene$col <- NA
+  gene$col[which(gene$impact=="Non-coding")] <- "gray100"
+  gene$col[which(gene$impact=="Synonymous")] <- "gray76"
+  gene$col[which(gene$impact=="Missense")] <- "#abd9e9"
+  gene$col[which(gene$impact=="Nonsense")] <- "#fdae61"
+  gene$col[which(gene$impact=="Indel")] <- cols[3]
+  gene$col[which(gene$impact=="Essential_Splice")] <- "#fee090"
+  gene$col[which(gene$impact=="Stop_loss")] <- cols[5]
+  
+  
+  # Set label position with lolliplot functions
+  lab.pos <- jitterLables(gene %>% arrange(cdsPos) %>% pull(cdsPos), 
+                          xscale=c(1, max(cdsCoordsIndex %>% pull(cdsPos))), 
+                          lineW=pointWidth)
+  
+  lab.pos <- reAdjustLabels(lab.pos, lineW=pointWidth, xmax = max(cdsCoordsIndex %>% pull(cdsPos)))
+  
+  variants <- gene %>% 
+    mutate(labPos = lab.pos) %>% mutate(aachange = replace_na(aachange, ".")) %>%
+    mutate(label = replace_na(label, " "))
+  
+  
+  xMax <- max(c(intervals_cds$cdsEnd,intervals_cds$cdsStart)) + max(c(intervals_cds$cdsEnd,intervals_cds$cdsStart))*0.05
+  
+  xMin <- 1 - xMax*0.01
+  
+  pCov <- ggplot(geneCov, aes(x = cdsPos, y = cov)) + 
+    #Coverage area
+    geom_area(fill = '#ccece6') + ylab('Duplex_Cov') + 
+    #Variant stems
+    geom_segment(data = variants, aes(x=cdsPos, xend=cdsPos, y=0, yend= (0.125 * yMax))) +
+    geom_segment(data = variants, aes(x=cdsPos, xend=labPos, y=(0.125 * yMax), yend=(0.25 * yMax))) +
+    geom_segment(data = variants, aes(x=labPos, xend=labPos, y=(0.25 * yMax), yend=(0.325 * yMax))) +
+    #Variant points
+    geom_point(data = variants, aes(x = labPos, y = (0.325 * yMax), fill=col), shape=21,  color="black", size=5) +
+    #Label aa change
+    geom_text(data = variants, aes(label = name, x = labPos, y = (0.5 * yMax)), angle = 90) + 
+    #Label clinvar
+    geom_text(data = variants, aes(label = label, x = labPos, y = (0.325 * yMax)), size=3.5) +
+    scale_fill_identity(guide = "legend", breaks = variants$col, labels = variants$impact) +
+    scale_x_continuous(expand = c(0, 0), limits = c(xMin, xMax)) +
+    coord_cartesian(clip = "off") +
+    scale_y_continuous(limits = c(0, yMax), expand = c(0, 0)) +
+    ggtitle(goi[g]) +
+    theme(
+      panel.background = element_rect(fill = "transparent", colour = NA),
+      plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.grid = element_blank(),
+      panel.border = element_blank(),
+      plot.margin = unit(c(0.5, 0.5, 0, 0.5), "cm"),
+      panel.spacing = unit(c(0, 0, 0, 0), "cm"),
+      axis.text.y = element_text(margin = margin(0,0.3,0,0.2, "cm")),
+      axis.ticks = element_blank(),
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank(),
+      axis.line = element_blank(),
+      plot.title = element_text(hjust = 0.5),
+      axis.ticks.length.x = unit(0, "null"),
+      legend.position = c(0.5, 0.85),
+      legend.direction = "horizontal",
+      legend.title = element_blank(),
+      legend.key = element_rect(fill = NA)
+    ) 
+  
+  pCDS <- ggplot(intervals_cds, aes(xmin = cdsStart, xmax = cdsEnd, ymin = 0, ymax = 1)) +
+    geom_rect(fill = "#d0d1e6", colour = "black") +
+    theme_void() + 
+    xlab("CDS") +
+    scale_x_continuous(expand = c(0, 0), limits = c(xMin,xMax)) +
+    scale_y_continuous(expand = c(0, 0)) +
+    theme(plot.margin = unit(c(0, 0.5, 0.5, 0.5), "cm"))
+  
+  
+  ggarrange(pCov, pCDS, heights = c(15,1), nrow = 2, ncol = 1)
+  
+  filename <- paste0(outputPath, goi[g],"_lollipop.pdf")
+  pdf(file = filename, height = 3, width = 11, onefile=FALSE)
+  
+  ggarrange(pCov, pCDS, heights = c(15,1), nrow = 2, ncol = 1)
+  
+  dev.off()
+  }
+}
+
+```
+

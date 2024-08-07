@@ -1,5 +1,5 @@
 #!/bin/bash
-# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/ ; bsub -q week -M 2000 -R 'select[mem>=2000] span[hosts=1] rusage[mem=2000]' -J infercnv_all -o log "bash src/01_run_infercnv_all_fibroblasts.sh"
+# cd /lustre/scratch125/casm/team268im/at31/RA_som_mut/infercnv/ ; bsub -q week -M 10000 -R 'select[mem>=10000] span[hosts=1] rusage[mem=10000]' -J infercnv_all -o log "bash src/01_run_infercnv_all_fibroblasts.sh"
 
 # run infercnv on celltypes, running all individuals together
 # TODO: decide on cluster_by_groups value
@@ -34,7 +34,7 @@ nextflow run nf-infercnv \
   --mappings out/Zhang2023/all_fibroblasts/mappings.csv \
   --annotations out/Zhang2023/all_fibroblasts/annotations.tsv \
   --annotation_col cluster \
-  --analysis_mode subclusters \
+  --analysis_mode samples \
   --cluster_by_groups TRUE \
   --cutoff 0.1 \
   --window_length 151 \

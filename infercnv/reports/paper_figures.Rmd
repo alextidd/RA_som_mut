@@ -37,6 +37,11 @@ knitr::opts_knit$set(root.dir = "../")
 knitr::opts_chunk$set(warning = FALSE, dpi = 300, message = FALSE)
 ```
 
+# Datasets
+
+## LCM NanoSeq
+
+
 # Loading the inferCNV outputs
 
 inferCNV was run on the scRNA-seq data to call copy number variants in synovial 
@@ -262,10 +267,13 @@ We load Luke's object. The `nano_muts` are the targeted mutations. The
 .libPaths(c("/lustre/scratch125/casm/team268im/at31/.R/lib/4.2.2/", .libPaths()))
 
 # libraries
+library(magrittr)
 library(GenomicRanges)
 library(trackViewer)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)  # package for gene model
 library(org.Hs.eg.db)                       # package for gene name
+library(biomaRt)
+library(httr)                               # package for REST API
 
 # dirs
 lh22_dir <- "/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/"
@@ -273,20 +281,15 @@ lh22_dir <- "/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/"
 # load the metadata
 sm <- readr::read_tsv(file.path(lh22_dir, "Data/MetaData/sample_meta.tsv"))
 
-# load the muts
+# load the muts (targeted mutations in the nano_muts object)
 load(file.path(lh22_dir, "Figures/Figure_2/LCM_NanoSeq_Overlap/GOI",
                "pileup_muts.rda"))
-# muts <- list(exome = exome_muts,
-#              LCM = LCM_muts,
-#              targeted = nano_muts,
-#              pileup = pileup_muts)
-
-# get NF1 mutations, convert to granges
-
-
+nano_muts <-
+  nano_muts %>%
+  tibble::as_tibble()
 
 # get mutations, convert to granges
-gr_ls <-
+gr_muts_ls <-
   nano_muts %>%
   tibble::as_tibble() %>%
   dplyr::add_count(mut_site) %>%
@@ -301,50 +304,271 @@ gr_ls <-
   } %>%
   {split(., .$gene)}
 
-# get transcripts in the range
-trs <-
-  geneModelFromTxdb(TxDb.Hsapiens.UCSC.hg19.knownGene,
-                    org.Hs.eg.db, gr = gr_ls$NF1)
+# get the refcds
+data("refcds_hg19", package = "dndscv")
+names(RefCDS) <- RefCDS %>% purrr::map(~ .$gene_name)
 
-entrezID <- get("NF1", org.Hs.egSYMBOL2EG)
-theTrack <- geneTrack(entrezID, TxDb.Hsapiens.UCSC.hg19.knownGene)[[1]]
-viewerStyle <- trackViewerStyle()
-setTrackViewerStyleParam(viewerStyle, "margin", c(.1, .05, .02, .02))
-trackList <- trackList(trs)
-vp <- viewTracks(trackList,
-                 gr = gr, viewerStyle = viewerStyle,
-                 autoOptimizeStyle = TRUE)
+# write urls for proteinpaint
+
+# write custom input file for proteinpaint
+nano_muts %>%
+  dplyr::filter(gene == "NF1") %>%
+  dplyr::transmute(
+    aachange, 
+    aapos = as.numeric(stringr::str_sub(aachange, 2, -2)),
+    impact = dplyr::case_when(impact == "Missense" ~ "M",
+                              impact == "Nonsense" ~ "N",
+                              impact == "Synonymous" ~ "S",
+                              impact == "no-SNV" & type == "del" ~ "D",
+                              impact == "no-SNV" & type == "ins" ~ "I",
+                              TRUE ~ NA),
+    donor) %>%
+  dplyr::filter(!is.na(aapos)) %>%
+  readr::write_csv("protein_paint.csv")
+
+# write custom input file for mutationmapper
+nano_muts %>%
+  dplyr::filter(gene == "NF1") %>%
+  dplyr::transmute(
+    Chromosome = chr, Start_Position = pos - 1, End_Position = pos,
+    Reference_Allele = ref, Variant_Allele = mut, Hugo_Symbol = gene
+  ) %>%
+  readr::write_tsv("mutation_mapper.tsv")
+
+# get the gene
+g <- "NF1"
+
+# retrieve refcds element for gene
+x <- RefCDS[[g]]
+
+# get the position of each base along the exons
+# RefCDS is 1-based - must convert to 0-based for calculations, then
+# convert back to 1-based for plotting
+exons <-
+  tibble::tibble(start = x$intervals_cds[, 1] - 1,
+                 end = x$intervals_cds[, 2]) %>%
+  dplyr::mutate(dplyr::across(everything(), 
+                              ~ .x - (x$intervals_cds[1, 1] - 1),
+                              .names = "rel_{.col}"),
+                exon = dplyr::row_number(),
+                exon_length = end - start,
+                cds_end = cumsum(exon_length),
+                cds_start = dplyr::lag(cds_end, default = 0),
+                # convert starts to 1-based for plotting
+                dplyr::across(dplyr::contains("start"),
+                              ~ .x + 1))
+
+# expand to get every position
+exons_exp <-
+  exons %>%
+  dplyr::group_by(rel_start, rel_end, exon, exon_length) %>%
+  dplyr::reframe(pos = start:end, cds_pos = cds_start:cds_end)
+
+# load interpro entries
+interpro2go <-
+  readLines("data/interpro/interpro2go.txt") %>%
+  tibble::as_tibble() %>%
+  dplyr::filter(!grepl("^!", value)) %>%
+  tidyr::separate_wider_delim("value", delim = " ",
+                              names = c("interpro_accession", "rest"),
+                              too_many = "merge") %>%
+  tidyr::separate(rest, sep = " > GO:| ; GO:",
+                  into = c("domain_name", "GO_name", "GO_id")) %>%
+  dplyr::mutate(interpro_accession = gsub("InterPro:", "", interpro_accession))
+interpro <-
+  readr::read_tsv("data/interpro/entry.list") %>%
+  dplyr::rename(interpro_accession = ENTRY_AC)
+
+# retrieve protein domain annotations
+library(ensembldb)
+library(EnsDb.Hsapiens.v75)
+edb <- EnsDb.Hsapiens.v75
+domains <-
+  transcripts(edb, filter = GeneNameFilter(g),
+              columns = c("protein_id", "tx_biotype", "uniprot_id",
+                          "protein_domain_id", "protein_domain_source",
+                          "prot_dom_start", "prot_dom_end",
+                          "interpro_accession"))
+domains_exp <-
+  txs %>%
+  dplyr::as_tibble() %>%
+  dplyr::left_join(interpro2go) %>%
+  dplyr::filter(tx_biotype == "protein_coding",
+                !is.na(interpro_accession), !is.na(domain_name)) %>%
+  dplyr::mutate(dom_start = start + prot_dom_start,
+                dom_end = start + prot_dom_end) %>%
+  dplyr::group_by(tx_id, protein_id, protein_domain_id, protein_domain_source,
+                  prot_dom_start, prot_dom_end, interpro_accession,
+                  domain_name, GO_name) %>%
+  dplyr::reframe(pos = dom_start:dom_end)
+
+# combine all exon and domain annotations
+annots <-
+  exons_exp %>%
+  dplyr::full_join(domains_exp)
+
+# add exon annots to muts
+impact_palette <-
+  c("Synonymous" = "#b3b3b3",
+    "Missense" = "#5f9ea0",
+    "Nonsense" = "#68218a")
+p_dat <-
+  nano_muts %>%
+  dplyr::group_by(chr, pos, impact) %>%
+  dplyr::count() %>%
+  dplyr::right_join(annots) %>%
+  dplyr::mutate(alternate = ifelse(exon %% 2 == 0, "e", "o"),
+                impact = factor(impact, levels = names(impact_palette)))
+
+# plot
+pdf("test.pdf", width = 30)
+# mutations
+p_dat %>%
+  ggplot(aes(x = cds_pos, y = n, fill = impact, colour = impact)) +
+  geom_col(width = 1) +
+  geom_point() +
+  theme_classic() +
+  scale_fill_manual(values = impact_palette,
+                    na.value = "white", na.translate = FALSE) +
+  scale_colour_manual(values = impact_palette,
+                      na.value = "white", na.translate = FALSE)
+# exon bounds
+p_dat %>%
+  dplyr::group_by(exon, alternate) %>%
+  dplyr::summarise(xmin = min(cds_pos), xmax = max(cds_pos)) %>%
+  ggplot(aes(xmin = xmin, xmax = xmax, ymin = -1, ymax = 1,
+             fill = alternate)) +
+  geom_hline(yintercept = 0, colour = "black") +
+  geom_rect(colour = "black") +
+  theme_void() +
+  theme(axis.text.x = element_text()) +
+  scale_fill_manual(values = c("e" = "#e3b3b2",
+                               "o" = "#cd6f6e"))
+# protein domains
+p_dat %>%
+  dplyr::filter(!is.na(protein_domain_id)) %>%
+  dplyr::group_by(tx_id, domain_name, GO_name, protein_domain_id) %>%
+  dplyr::summarise(xmin = min(cds_pos), xmax = max(cds_pos)) %>%
+  ggplot(aes(xmin = xmin, xmax = xmax, ymin = -1, ymax = 1,
+             fill = GO_name)) +
+  geom_hline(yintercept = 0, colour = "black") +
+  geom_rect(colour = "black") +
+  theme_void() +
+  scale_fill_discrete(na.value = "white", na.translate = FALSE) +
+  facet_grid(tx_id ~ .)
+
+dev.off()
+
+
+
+# get gene coords (GRCh37)
+ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl",
+                      GRCh = 37)
+bm <-
+  getBM(attributes = c("chromosome_name", "start_position",
+                       "end_position", "strand", "hgnc_symbol"),
+        filters = c("hgnc_symbol"),
+        values = list(names(gr_muts_ls)),
+        mart = ensembl)
+gr_genes <-
+  GenomicRanges::GRanges(
+    seqnames = paste0("chr", bm$chromosome_name),
+    ranges = IRanges::IRanges(start = bm$start_position,
+                              end = bm$end_position,
+                              names = bm$hgnc_symbol),
+    strand = ifelse(bm$strand == 1, "+", "-"),
+    gene = bm$hgnc_symbol)
+gr_genes_ls <- split(gr_genes, gr_genes$gene)
+
+# get transcripts per gene
+nf1_trs <-
+  geneModelFromTxdb(TxDb.Hsapiens.UCSC.hg19.knownGene,
+                    org.Hs.eg.db, gr = gr_genes_ls$NF1) %>%
+  purrr::map(~ .$dat) %>%
+  {Reduce(c, .)} %>%
+  subset(symbol == "NF1" & feature == "CDS")
+nf1_trs_fill <-
+  tibble::tibble(transcript = unique(nf1_trs$transcript),
+                 fill = rainbow(dplyr::n_distinct(nf1_trs$transcript))) %>%
+  tibble::column_to_rownames("transcript")
+nf1_trs$fill <-  nf1_trs_fill[nf1_trs$transcript, ]
+nf1_trs$featureLayerID <- nf1_trs$transcript
+names(nf1_trs) <- nf1_trs$transcript
+
+# get protein domains
+APIurl <- "https://www.ebi.ac.uk/proteins/api/" # base URL of the API
+taxid <- "9606" # human tax ID
+gene <- "NF1" # target gene
+orgDB <- "org.Hs.eg.db" # org database to get the uniprot accession id
+eid <- mget(gene, get(sub(".db", "SYMBOL2EG", orgDB)))[[1]]
+chr <- mget(eid, get(sub(".db", "CHR", orgDB)))[[1]]
+accession <- unlist(lapply(eid, function(.ele){
+  mget(.ele, get(sub(".db", "UNIPROT", orgDB)))
+  }))
+featureURL <- paste0(APIurl,
+                      "features?offset=0&size=-1&reviewed=true",
+                      "&types=DNA_BIND%2CMOTIF%2CDOMAIN",
+                      "&taxid=", taxid,
+                      "&accession=", paste(accession, collapse = "%2C"))
+response <- GET(featureURL)
+content <- httr::content(response)[[1]]
+acc <- content$accession
+sequence <- content$sequence
+gr <- GRanges(chr, IRanges(1, nchar(sequence)))
+domains <- do.call(rbind, content$features)
+domains <- GRanges(chr, IRanges(as.numeric(domains[, "begin"]),
+                                as.numeric(domains[, "end"]),
+                                names = domains[, "description"]))
+names(domains)[1] <- "DNA_BIND" ## this is hard coding.
+domains$fill <- 1 + seq_along(domains)
+domains$height <- 0.04
+## GET variations. This part can be replaced by user-defined data.
+variationURL <- paste0(APIurl,
+                        "variation?offset=0&size=-1",
+                        "&sourcetype=uniprot&dbtype=dbSNP",
+                        "&taxid=", taxid,
+                        "&accession=", acc)
+response <- GET(variationURL)
+content <- httr::content(response)[[1]]
+keep <- sapply(content$features, function(.ele) length(.ele$evidences)>2 && # filter the data by at least 2 evidences
+                  !grepl("Unclassified", .ele$clinicalSignificances)) # filter the data by classified clinical significances.
+nkeep <- c("wildType", "alternativeSequence", "begin", "end",
+            "somaticStatus", "consequenceType", "score")
+content$features <- lapply(content$features[keep], function(.ele){
+  .ele$score <- length(.ele$evidences)
+  unlist(.ele[nkeep]) 
+})
+variation <- do.call(rbind, content$features)
+variation <-
+  GRanges(chr,
+          IRanges(as.numeric(variation[, "begin"]),
+                  width = 1,
+                  names = paste0(variation[, "wildType"],
+                                  variation[, "begin"],
+                                  variation[, "alternativeSequence"])),
+          score = as.numeric(variation[, "score"]),
+          color = as.numeric(factor(variation[, "consequenceType"]))+1)
+variation$label.parameter.gp <- gpar(cex=.5)
+seqlevels(variation) <- paste0("chr", seqlevels(variation))
+seqlevels(domains) <- paste0("chr", seqlevels(domains))
+
+domains %>%
+  tibble::as_tibble()
 
 pdf("test.pdf")
-vp
+lolliplot(gr_muts_ls$NF1, domains, nf1_trs)
 dev.off()
 
-# select transcripts of interest
-features <- c(range(trs[[1]]$dat), range(trs[[2]]$dat))
-names(features) <- c(trs[[1]]$name, trs[[2]]$name)
-features$fill <- c("lightblue", "mistyrose")
-
-
-
-# lollipop
-pdf("test.pdf", width = 30)
-lolliplot(gr_ls$NF1, features,
-          ranges = GRanges("chr17", IRanges(29421945, 29704695, names = "NF1")), 
-          type = "circle")
+# plot transcripts per gene
+pdf("test.pdf", width = 20)
+lolliplot(gr_muts_ls$NF1, nf1_trs)
 dev.off()
+```
 
-# get genes from biomart
-txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
-broads <- GenomicFeatures::genes(txdb)
-seqlevels(broads) <- gsub("chr", "", seqlevels(broads))
+```{r}
+load(file="/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/Figures/Figure_1/GOI.rda")
+goi <- list(exome_genes = exome_genes, goi_exome = goi_exome, 
+            goi_targeted = goi_targeted, targeted_genes = targeted_genes)
 
-# get gene annotations from broads
-feats <- broads[seqnames(broads) %in% seqlevels(gr)]
-findOverlaps(gr, broads)
-
-feats <-
-  GenomicRanges::GRanges("12", IRanges::IRanges(start = 6702320, end = 6702330),
-                         strand = "+", gene = "NF1")
-
-trackViewer::lolliplot(SNP.gr = head(gr, 1), features = feats)
+nanoseqVarsPath <- "nano_muts.tsv"
 ```
