@@ -26,32 +26,39 @@ params:
 ```{r setup, include = F, message = F, warning = F, class.source = "fold-hide"}
 # module load R/4.4.0 ; Rscript -e 'rmarkdown::render("reports/paper_figures.Rmd", output_dir = "out/paper_figures/")' # nolint: line_length_linter.
 
-# libraries
+# libraries and functions
+source("bin/lolliplot.R")
 library(magrittr)
 library(ggplot2)
 library(SummarizedExperiment)
 library(SingleCellExperiment)
 
-# chunk options
-knitr::opts_knit$set(root.dir = "../")
-knitr::opts_chunk$set(warning = FALSE, dpi = 300, message = FALSE)
-```
-
-# Datasets
-
-## LCM NanoSeq
-
-```{r}
 # dirs
 lh22_dir <- "/lustre/scratch125/casm/team268im/lh22/Rheumatoid_Arthritis_Paper/"
 nb15_dir <- "/lustre/scratch126/casm/team154pc/nb15/liver/"
 
-# functions and libraries
-source("bin/lolliplot.R")
-library(magrittr)
-library(ggplot2)
+# chunk options
+knitr::opts_knit$set(root.dir = "../")
+knitr::opts_chunk$set(warning = FALSE, dpi = 300, message = FALSE)
 
-# load the annotated mutations from nanoseq output
+# plotting params
+filterNonCoding <- TRUE
+pointWidth <- 0.017
+mut_impact_palette <-
+  c("Non-coding" = "gray100",
+    "Synonymous" = "gray76",
+    "Missense" = "#abd9e9",
+    "Nonsense" = "#fdae61",
+    "Indel" = "pink",
+    "Essential_Splice" = "#fee090",
+    "Stop_loss" = "#bb0f12")
+```
+
+First, we load the NanoSeq output and run dNdScv to annotate the mutations and 
+to get a list of significantly positively selected genes.
+
+```{r load_nanoseq_muts}
+# load the annotated mutations from nanoseq output (`nano_muts`)
 load(file.path(lh22_dir, "Figures/Figure_2/LCM_NanoSeq_Overlap/GOI",
                "pileup_muts.rda"))
 nano_muts <- nano_muts %>% tibble::as_tibble()
@@ -60,88 +67,246 @@ nano_muts <- nano_muts %>% tibble::as_tibble()
 dndscv_in <- nano_muts %>% dplyr::select(sampleID, chr, pos, ref, mut)
 dndscv_out <- dndscv::dndscv(dndscv_in)
 
+# combine annotated mutations with dnds output
+nanoseq_data <-
+  nano_muts %>%
+  dplyr::mutate(
+    impact = dplyr::case_when(impact == "no-SNV" ~ "Indel",
+                              is.na(impact) ~ "Non-coding",
+                              TRUE ~ impact),
+    name = dplyr::case_when(impact == "Indel" ~
+      # names for indels
+      ntchange %>%
+        tidyr::replace_na(".") %>%
+        stringr::str_remove(".*-") %>%
+        stringr::str_replace("frshift", "FS") %>%
+        stringr::str_replace("inframe", "IF"),
+      # names for snvs
+      TRUE ~ tidyr::replace_na(aachange, "."))) %>%
+  dplyr::select(sampleID, chr, pos, ref, mut, duplex_cov, impact, donor, name) %>%
+  dplyr::left_join(dndscv_out$annotmuts) %>%
+  # rename cols
+  dplyr::rename(CHROM = chr, POS = pos, REF = ref, ALT = mut)
+```
+
+Now, we get coding sequence annotations for these genes of interest, including 
+the TSS, the bounds of exons, and the protein domains.
+
+```{r get_representative_domains, eval = F}
+# TODO: dplyr::filter(protein_representative == TRUE)
+accession <- "P21359"
+url <-
+  paste0(
+    "https://www.ebi.ac.uk/interpro/api/entry/all/protein/UniProt/",
+    accession,
+    "/?extra_fields=hierarchy%2Cshort_name&amp;format=tsv&amp;page_size=200")
+response <- httr::GET(url)
+content <- httr::content(response)
+domains <-
+  content$results %>%
+  purrr::map(function(domain) {
+    md <-
+      domain$metadata %>%
+      purrr::compact() %>%
+      tibble::as_tibble() %>%
+      dplyr::rename_with(~ paste0("metadata_", .), .cols = everything())
+    prot <-
+      domain$proteins[[1]] %>%
+      purrr::compact() %>%
+      tibble::as_tibble() %>%
+      tidyr::unnest_wider(entry_protein_locations) %>%
+      dplyr::mutate(fragments = fragments[[1]]) %>%
+      tidyr::unnest_wider(fragments, names_sep = "_") %>%
+      dplyr::rename_with(~ paste0("protein_", .), .cols = everything())
+    # extra <-
+    #   domain$extra_fields %>%
+    #   purrr::compact() %>%
+    #   tibble::as_tibble() %>%
+    #   tidyr::unnest_wider(hierarchy, names_sep = "_")
+    dplyr::bind_cols(md, prot)
+  }) %>%
+  dplyr::bind_rows()
+```
+
+```{r get_gene_info}
 # load refcds, add gene names
 data("refcds_hg19", package = "dndscv")
 names(RefCDS) <- RefCDS %>% purrr::map(~ .$gene_name)
 
-# combine annotated mutations with dnds output
-nanoseq_data <-
-  nano_muts %>%
-  dplyr::mutate(impact = dplyr::case_when(impact == "no-SNV" ~ "Indel",
-                                          is.na(impact) ~ "Non-coding",
-                                          TRUE ~ impact)) %>%
-  dplyr::select(sampleID, chr, pos, ref, mut, duplex_cov, impact, donor) %>%
-  dplyr::left_join(dndscv_out$annotmuts) %>%
-  # rename cols
-  dplyr::rename(CHROM = chr, POS = pos, REF = ref, ALT = mut)
+#  get gene info
+goi <-
+  list("NF1", "TNFRSF14") %>%
+  purrr::set_names() %>%
+  purrr::map(function(gene) {
 
-# plotting params
-filterNonCoding <- TRUE
-pointWidth <- 0.017
+    # get gene info
+    g <- RefCDS[[gene]]
 
-# define genes of interest
-g <- c("NF1")
+    # get cds intervals
+    intervals_cds0 <- tibble::tibble(
+      chr = g$chr,
+      strand = g$strand,
+      start = g$intervals_cds[, 1],
+      end = g$intervals_cds[, 2]
+    ) %>%
+      dplyr::arrange(start) %>%
+      dplyr::mutate(length = (end + 1) - start)
 
-# get gene info
-g_CDS <- RefCDS[[g]]
+    # get genomic position to CDS position index
+    index <- getCDSindex(intervals_cds0)
 
-#  get gene intervals
-intervals_cds0 <- tibble::tibble(
-  chr = g_CDS$chr,
-  strand = g_CDS$strand,
-  start = g_CDS$intervals_cds[, 1],
-  end = g_CDS$intervals_cds[, 2]
-) %>%
-  dplyr::arrange(start) %>%
-  dplyr::mutate(length = (end + 1) - start)
+    # convert CDS intervals
+    intervals_cds <-
+      intervals_cds0 %>%
+      dplyr::left_join(dplyr::select(index, start = pos, cdsStart = cdsPos),
+                       by = "start") %>%
+      dplyr::left_join(dplyr::select(index, end = pos, cdsEnd = cdsPos),
+                       by = "end")
 
-# get genomic position to CDS position index
-cds_coords_index <- getCDSindex(intervals_cds0)
+    # get protein domains from InterPro REST API
+    domains <- getProteinDomains(gene)
 
-# convert CDS intervals
-intervals_cds <-
-  intervals_cds0 %>%
-  dplyr::left_join(cds_coords_index %>%
-                     dplyr::select(start = pos, cdsStart = cdsPos),
-                   by = "start") %>%
-  dplyr::left_join(cds_coords_index %>%
-                     dplyr::select(end = pos, cdsEnd = cdsPos),
-                   by = "end")
+    # subset nanoseq_data to variants in the gene
+    gene_cds_muts <-
+      nanoseq_data %>%
+      dplyr::filter(CHROM == unique(intervals_cds$chr),
+                    POS >= min(intervals_cds$start),
+                    POS <= max(intervals_cds$end))
 
-# subset nanoseq_data to variants in the gene
-gene0 <-
-  nanoseq_data %>%
-  dplyr::filter(CHROM == unique(intervals_cds$chr),
-                POS >= min(intervals_cds$start),
-                POS <= max(intervals_cds$end))
+    # get coords outside the CDS
+    gene_non_cds_muts <-
+      index %>%
+      dplyr::rename(POS = pos) %>%
+      dplyr::bind_rows(getCDSindexNonCDS(index, gene_cds_muts,
+                                         strand = unique(intervals_cds$strand)))
 
-# get coords outside the CDS
-noncds <-
-  cds_coords_index %>%
-  dplyr::rename(POS = pos) %>%
-  dplyr::bind_rows(getCDSindexNonCDS(cds_coords_index, gene0,
-                                     strand = unique(intervals_cds$strand)))
+    # get all muts in the gene
+    gene_muts <-
+      gene_cds_muts %>%
+      dplyr::left_join(gene_non_cds_muts, by = "POS") %>%
+      dplyr::arrange(cdsPos) %>%
+      tidyr::drop_na(cdsPos) %>%
+      # count number of patients with the mutation
+      dplyr::group_by(CHROM, POS, REF, ALT) %>%
+      dplyr::mutate(n_donors = dplyr::n_distinct(pid)) %>%
+      dplyr::ungroup()
 
-gene <-
-  gene0 %>%
-  dplyr::left_join(noncds, by = "POS") %>%
-  dplyr::arrange(cdsPos) %>%
-  tidyr::drop_na(cdsPos)
+    # get label positions
+    lab_pos <-
+      jitterLabels(sort(gene_muts$cdsPos),
+                   xscale = c(1, max(intervals_cds$cdsEnd)),
+                   lineW = pointWidth) %>%
+      reAdjustLabels(lineW = pointWidth, xmax = max(intervals_cds$cdsEnd))
 
-# set impact colours
-impact_palette <-
-  c("Non-coding" = "gray100",
-    "Synonymous" = "gray76",
-    "Missense" = "#abd9e9",
-    "Nonsense" = "#fdae61",
-    "Indel" = "pink",
-    "Essential_Splice" = "#fee090",
-    "Stop_loss" = "#bb0f12")
-gene <-
-  gene %>%
-  dplyr::mutate(impact = factor(impact, levels = names(impact_palette)),
-                col = impact_palette[impact])
+    # prep data for plotting
+    p_dat <-
+      gene_muts %>%
+      dplyr::mutate(lab_pos = lab_pos,
+                    impact = factor(impact, levels = names(mut_impact_palette)),
+                    aachange = tidyr::replace_na(aachange, "."))
 
+    # get plotting limits
+    x_max <-
+      max(c(intervals_cds$cdsEnd, intervals_cds$cdsStart)) +
+      max(c(intervals_cds$cdsEnd, intervals_cds$cdsStart)) * 0.02
+    x_min <- 1 - x_max * 0.01
+    if (min(p_dat$lab_pos < x_min)) x_min <- 1 - x_max * 0.02
+    legend_pos <- c(0.5, 0.95)
+    y_max_count <- max(p_dat$n_donors) + 2
+    if (y_max_count > 10) y_max_count <- y_max_count + 2
+
+    # plot
+    p <-
+      ggplot(p_dat, aes(x = cdsPos, y = n_donors)) +
+      # variant stems
+      geom_segment(aes(x = cdsPos, xend = cdsPos, y = 0, yend = (0.2 * n_donors))) +
+      geom_segment(aes(x = cdsPos, xend = lab_pos, y = 0.2 * n_donors, yend = 0.3 * n_donors)) +
+      geom_segment(aes(x = lab_pos, xend = lab_pos, y = 0.3 * n_donors, yend = n_donors)) +
+      #Variant points
+      geom_point(aes(x = lab_pos, y = n_donors, fill=impact), shape=21,  color="black", size=5) +
+      #Label aa change
+      geom_text(aes(label = name, x = lab_pos, y = (n_donors + y_max_count/8)), angle = 90) + 
+      ggtitle(gene) +
+      # label clinvar
+      # geom_text(aes(label = label, x = lab_pos, y = (n_donors)), size = 3.5) +
+      scale_fill_manual(guide = "legend", values = mut_impact_palette) +
+      scale_x_continuous(expand = c(0, 0), limits = c(x_min, x_max)) +
+      ylab("Sperm samples with mutation") +
+      coord_cartesian(clip = "off") +
+      scale_y_continuous(limits = c(0, y_max_count), expand = c(0, 0),
+                         sec.axis = sec_axis(~ . * (200000/y_max_count),
+                         name = "Duplex Coverage")) +
+      theme(
+        panel.background = element_rect(fill = "transparent", colour = NA),
+        plot.background = element_rect(fill = "transparent", colour = NA),
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        plot.margin = unit(c(0.5, 0.5, 0, 0.5), "cm"),
+        panel.spacing = unit(c(0, 0, 0, 0), "cm"),
+        axis.text.y = element_text(margin = margin(0,0.3,0,0.2, "cm")),
+        axis.ticks = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        axis.ticks.length.x = unit(0, "null"),
+        legend.position = legend_pos,
+        legend.direction = "horizontal",
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA))
+
+    # plot mutations
+    p_muts <-
+      p_dat %>%
+      dplyr::group_by(CHROM, POS, REF, ALT) %>%
+      dplyr::mutate(n_donors = dplyr::n_distinct(donor)) %>%
+      ggplot() +
+      # variant stems
+      geom_segment(aes(x = cdsPos, xend = cdsPos, y = 0,
+                       yend = (0.125 * max(lab_pos)))) +
+      geom_segment(aes(x = cdsPos, xend = labPos, y = (0.125 * max(lab_pos)),
+                       yend = (0.25 * max(lab_pos)))) +
+      geom_segment(aes(x = labPos, xend = labPos, y = (0.25 * max(lab_pos)),
+                       yend = (0.325 * max(lab_pos)))) +
+      # variant points
+      geom_point(aes(x = labPos, y = 0.325 * max(lab_pos), fill = impact,
+                     size = n_donors),
+                shape = 21, colour = "black", size = 5) +
+      # label aa change
+      # geom_text(aes(label = name, x = labPos, y = (0.5 * max(lab_pos))),
+      #           angle = 90) +
+      theme_void() +
+      scale_fill_manual(guide = "legend", values = mut_impact_palette) +
+      scale_x_continuous(expand = c(0, 0), limits = c(x_min, x_max)) +
+      coord_cartesian(clip = "off") +
+      scale_y_continuous(limits = c(0, max(lab_pos)), expand = c(0, 0)) +
+      ggtitle(g)
+
+    # plot CDS
+    p_cds <-
+      intervals_cds %>%
+      ggplot(aes(xmin = cdsStart, xmax = cdsEnd, ymin = 0, ymax = 1)) +
+      geom_rect(fill = "#d0d1e6", colour = "black") +
+      theme_void() + 
+      xlab("CDS") +
+      scale_x_continuous(expand = c(0, 0), limits = c(x_min, x_max)) +
+      scale_y_continuous(expand = c(0, 0)) +
+      theme(plot.margin = unit(c(0, 0.5, 0.5, 0.5), "cm"))
+
+    pdf("test.pdf", width = 20)
+    print(p)
+    cowplot::plot_grid(p_muts, p_cds, ncol = 1, rel_heights = c(15, 1))
+    dev.off()
+
+    # return all
+    list(gene_muts = gene_muts,
+         intervals_cds = intervals_cds,
+         domains = domains,
+         index = index)
+  })
+```
+
+```{r plot_lolliplot}
 # set label positions
 lab_pos <-
   jitterLabels(sort(gene$cdsPos),
@@ -180,7 +345,7 @@ p_var <-
   # geom_text(aes(label = name, x = labPos, y = (0.5 * max(lab_pos))),
   #           angle = 90) +
   theme_void() +
-  scale_fill_manual(guide = "legend", values = impact_palette) +
+  scale_fill_manual(guide = "legend", values = mut_impact_palette) +
   scale_x_continuous(expand = c(0, 0), limits = c(x_min, x_max)) +
   coord_cartesian(clip = "off") +
   scale_y_continuous(limits = c(0, max(lab_pos)), expand = c(0, 0)) +
